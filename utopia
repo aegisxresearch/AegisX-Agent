@@ -1,0 +1,5 @@
+#!/bin/bash
+# Utopia Agent launcher — runs from anywhere
+cd /home/firman/utopia-agent
+source .venv/bin/activate
+exec python -m utopia_agent.cli "$@"
