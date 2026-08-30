@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -37,10 +38,69 @@ app = typer.Typer(name="utopia", help="🤖 Utopia Agent — Super-powered Agent
 # Global agent
 _agent = None
 
+CONFIG_FILE = Path.home() / ".utopia" / "config.json"
+
+
+def _load_saved_config() -> dict | None:
+    """Load saved config from ~/.utopia/config.json."""
+    if CONFIG_FILE.exists():
+        try:
+            import json
+            return json.loads(CONFIG_FILE.read_text())
+        except (json.JSONDecodeError, Exception):
+            pass
+    return None
+
+
+def _save_config(config) -> None:
+    """Save config to ~/.utopia/config.json."""
+    import json
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "provider": config.llm_provider.value,
+        "model": config.get_llm_config().get("model", ""),
+        "api_key": config.get_llm_config().get("api_key", ""),
+        "base_url": config.get_llm_config().get("base_url", ""),
+    }
+    CONFIG_FILE.write_text(json.dumps(data, indent=2))
+
 
 def _get_config(provider=None, model=None, api_key=None, custom_url=None):
-    from utopia_agent.config import AgentConfig
+    from utopia_agent.config import AgentConfig, LLMProvider
     config = AgentConfig()
+
+    # Load saved config first
+    saved = _load_saved_config()
+    if saved:
+        try:
+            config.llm_provider = LLMProvider(saved.get("provider", "custom"))
+        except ValueError:
+            config.llm_provider = LLMProvider.CUSTOM
+
+        p = config.llm_provider.value
+        m = saved.get("model", "")
+        k = saved.get("api_key", "")
+        u = saved.get("base_url", "")
+
+        match p:
+            case "openai":
+                config.openai_model = m or config.openai_model
+                config.openai_api_key = k or config.openai_api_key
+            case "anthropic":
+                config.anthropic_model = m or config.anthropic_model
+                config.anthropic_api_key = k or config.anthropic_api_key
+            case "ollama":
+                config.ollama_model = m or config.ollama_model
+                config.ollama_base_url = u or config.ollama_base_url
+            case "groq":
+                config.groq_model = m or config.groq_model
+                config.groq_api_key = k or config.groq_api_key
+            case "custom":
+                config.custom_model = m or config.custom_model
+                config.custom_api_key = k or config.custom_api_key
+                config.custom_base_url = u or config.custom_base_url
+
+    # Override with CLI args
     if provider:
         config.llm_provider = provider
     if model:
@@ -78,6 +138,7 @@ def _get_agent(config=None):
             console.print()
 
             config = _run_setup_wizard(config)
+            _save_config(config)  # Save for next time
             _agent = UtopiaAgent(config)
     return _agent
 
@@ -538,13 +599,17 @@ def _run_chat(agent, no_stream=False):
     console.print(banner)
     console.print()
 
-    # Status line
+    # Status line — safe display
+    persona_name = str(agent.config.persona) if agent.config.persona else "default"
+    # Clean up typer artifacts
+    if "OptionInfo" in persona_name:
+        persona_name = "default"
     console.print(
         f"  🔌 [cyan]{info['provider']}[/cyan] • "
         f"🧠 [cyan]{info['model']}[/cyan] • "
         f"🔧 [yellow]{len(agent.list_tools())} tools[/yellow] • "
         f"💡 [magenta]{len(agent.list_skills())} skills[/magenta] • "
-        f"🎭 [green]{agent.config.persona}[/green]"
+        f"🎭 [green]{persona_name}[/green]"
     )
     console.print(f"  [dim]Type / for commands • /help for help • /quit to exit[/dim]")
     console.print()
@@ -587,10 +652,9 @@ def _run_chat(agent, no_stream=False):
 
 
 def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
-    """Chat with animated thinking/tool progress."""
+    """Chat with animated thinking/tool progress + streaming."""
     progress = AnimatedProgress()
 
-    # Show thinking animation in background
     def _animate():
         while progress._running:
             frame = progress.get_frame()
@@ -603,7 +667,7 @@ def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
 
     import threading
 
-    # Start animation
+    # Start thinking animation
     progress.thinking("🤔 Thinking...")
     anim_thread = threading.Thread(target=_animate, daemon=True)
     anim_thread.start()
@@ -617,13 +681,57 @@ def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
             console.print(Panel(Markdown(response), title="🤖 Utopia", border_style="green"))
             console.print()
         else:
-            # For streaming, show thinking first then stream
-            response = asyncio.run(agent.chat(user_message))
-            progress.stop()
-            time.sleep(0.15)
-            console.print()
-            console.print(Panel(Markdown(response), title="🤖 Utopia", border_style="green"))
-            console.print()
+            # Streaming mode: first check if tools needed
+            from utopia_agent.llm.base import Message, Role
+            system_prompt = agent._build_system_prompt()
+            messages = [Message(role=Role.SYSTEM, content=system_prompt)] + list(agent.conversation.get_context())
+            tool_schemas = agent.tools.list_schemas() or None
+
+            # Quick check: does LLM want to use tools?
+            check_response = asyncio.run(agent.llm.chat(
+                messages=messages,
+                tools=tool_schemas,
+                temperature=agent.config.temperature,
+                max_tokens=agent.config.max_tokens,
+            ))
+
+            if check_response.has_tool_calls:
+                # Tools needed — use full agentic loop (non-streaming)
+                response = asyncio.run(agent.chat(user_message))
+                progress.stop()
+                time.sleep(0.15)
+                console.print()
+                console.print(Panel(Markdown(response), title="🤖 Utopia", border_style="green"))
+                console.print()
+            else:
+                # No tools — stream the response!
+                progress.stop()
+                time.sleep(0.1)
+                console.print()
+                console.print("[bold green]🤖 Utopia:[/bold green] ", end="")
+
+                full_response = ""
+                async def _stream():
+                    nonlocal full_response
+                    agent.conversation.add(Message(role=Role.USER, content=user_message))
+                    messages_with_user = [Message(role=Role.SYSTEM, content=system_prompt)] + list(agent.conversation.get_context())
+                    async for chunk in agent.llm.stream_chat(
+                        messages=messages_with_user,
+                        temperature=agent.config.temperature,
+                        max_tokens=agent.config.max_tokens,
+                    ):
+                        full_response += chunk
+                        # Typewriter effect
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                        time.sleep(0.02)  # Smooth typing speed
+
+                asyncio.run(_stream())
+                agent.conversation.add(Message(role=Role.ASSISTANT, content=full_response))
+                # Save to session store
+                agent.session_store.save_message(agent.session_id, "user", user_message)
+                agent.session_store.save_message(agent.session_id, "assistant", full_response)
+                console.print("\n")
     except Exception:
         progress.stop()
         time.sleep(0.1)
@@ -645,7 +753,8 @@ def chat(
 ):
     """Start interactive chat session."""
     config = _get_config(provider, model, api_key, custom_url)
-    if persona:
+    # Fix: persona might be OptionInfo object from typer
+    if persona and isinstance(persona, str):
         config.persona = persona
     agent = _get_agent(config)
     _run_chat(agent, no_stream)
