@@ -108,9 +108,14 @@ Goal: {goal}
 Provide the plan as JSON:"""
 
     def build_planning_prompt(self, goal: str, available_tools: list[str]) -> str:
-        """Build a prompt for plan generation."""
+        """Build a prompt for plan generation.
+
+        The template contains literal JSON braces, so the placeholders are
+        substituted by exact-string replacement instead of ``str.format``
+        (which would raise ``KeyError`` on every call).
+        """
         tools_str = ", ".join(available_tools) if available_tools else "none (reasoning only)"
-        return self.PLANNING_PROMPT.format(tools=tools_str, goal=goal)
+        return self.PLANNING_PROMPT.replace("{tools}", tools_str).replace("{goal}", goal)
 
     def parse_plan(self, response: str, goal: str) -> ExecutionPlan:
         """Parse LLM response into an ExecutionPlan."""
@@ -133,7 +138,11 @@ Provide the plan as JSON:"""
                     action=step_data.get("action"),
                     action_input=step_data.get("action_input"),
                 )
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+            # Malformed responses come in many shapes: unparseable JSON, a
+            # "steps" value that is not a list, or step entries that are not
+            # dicts. All degrade to a single reasoning step.
+            plan = ExecutionPlan(goal=goal)
             # Fallback: treat entire response as a single step
             plan.add_step(thought=response.strip())
 

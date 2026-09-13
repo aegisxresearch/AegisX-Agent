@@ -60,7 +60,7 @@ source = ["aegisx_agent"]
 
 [tool.coverage.report]
 # Baseline measured when the gate was introduced; raise as coverage grows.
-fail_under = 61
+fail_under = 62
 show_missing = true
 
 [tool.hatch.build.targets.wheel]

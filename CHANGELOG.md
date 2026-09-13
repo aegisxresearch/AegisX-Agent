@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`aegisx plan` crashed on every invocation.** The planning prompt template
+  contains literal JSON braces, and `str.format` raised `KeyError` on them
+  before any LLM call was made. Placeholders are now substituted by exact
+  string replacement.
+- **Plan parsing degraded safely.** A malformed LLM response (a `steps` value
+  that is not a list, or non-dict step entries) raised `AttributeError`/
+  `TypeError` instead of falling back to a single reasoning step. All
+  malformed shapes now degrade gracefully.
 - **Scheduler: weekly tasks no longer hot-loop the daemon.** If a weekly task's
   scheduled time had already passed on its target day, `calculate_next_run()`
   returned that past time as the next run. The scheduler saw the task as due on
