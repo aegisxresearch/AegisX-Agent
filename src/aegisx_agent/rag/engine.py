@@ -85,7 +85,7 @@ class RAGEngine:
         else:
             text = p.read_text(encoding="utf-8", errors="replace")
 
-        return await self. ingest_text(text, source=str(p))
+        return await self.ingest_text(text, source=str(p))
 
     async def ingest_directory(self, dir_path: str, extensions: list[str] | None = None) -> int:
         """Ingest all matching files in a directory."""
