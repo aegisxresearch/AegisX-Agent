@@ -41,3 +41,7 @@ htmlcov/
 # Distribution
 *.whl
 *.tar.gz
+
+# Local agent scaffolding (freebuff-power), never published
+.freebuff/
+AGENTS.md
