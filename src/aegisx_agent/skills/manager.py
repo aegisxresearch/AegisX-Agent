@@ -21,7 +21,10 @@ class SkillManager:
     """Manages the agent's skill library."""
 
     def __init__(self, skills_dir: str | Path | None = None) -> None:
-        self.skills_dir = Path(skills_dir).expanduser() if skills_dir else Path("~/.aegisx/skills").expanduser()
+        if skills_dir:
+            self.skills_dir = Path(skills_dir).expanduser()
+        else:
+            self.skills_dir = Path("~/.aegisx/skills").expanduser()
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self._skills: dict[str, Skill] = {}
         self._load_all()

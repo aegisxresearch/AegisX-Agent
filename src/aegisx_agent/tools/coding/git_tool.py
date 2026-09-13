@@ -34,7 +34,10 @@ class GitTool(Tool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "diff", "commit", "log", "branch", "add", "checkout", "stash"],
+                        "enum": [
+                            "status", "diff", "commit", "log",
+                            "branch", "add", "checkout", "stash",
+                        ],
                         "description": "Git action to perform",
                     },
                     "message": {
@@ -79,7 +82,11 @@ class GitTool(Tool):
                 case "commit":
                     msg = kwargs.get("message", "")
                     if not msg:
-                        return ToolResult(status=ToolStatus.ERROR, output="", error="Commit message required")
+                        return ToolResult(
+                            status=ToolStatus.ERROR,
+                            output="",
+                            error="Commit message required",
+                        )
                     # Auto-add before commit
                     await self._run_git("add", "-A")
                     return await self._run_git("commit", f'-m "{msg}"')
@@ -96,12 +103,18 @@ class GitTool(Tool):
                 case "checkout":
                     branch = kwargs.get("branch", "")
                     if not branch:
-                        return ToolResult(status=ToolStatus.ERROR, output="", error="Branch name required")
+                        return ToolResult(
+                            status=ToolStatus.ERROR,
+                            output="",
+                            error="Branch name required",
+                        )
                     return await self._run_git("checkout", branch)
                 case "stash":
                     return await self._run_git("stash")
                 case _:
-                    return ToolResult(status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}")
+                    return ToolResult(
+                        status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}"
+                    )
         except Exception as e:
             return ToolResult(status=ToolStatus.ERROR, output="", error=str(e))
 

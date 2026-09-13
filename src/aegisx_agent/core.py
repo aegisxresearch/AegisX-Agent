@@ -432,7 +432,10 @@ class AegisXAgent:
         planning_prompt = self.plan_builder.build_planning_prompt(goal, tool_names)
         response = await self.llm.chat(
             messages=[
-                Message(role=Role.SYSTEM, content="You are a planning assistant. Respond with JSON only."),
+                Message(
+                    role=Role.SYSTEM,
+                    content="You are a planning assistant. Respond with JSON only.",
+                ),
                 Message(role=Role.USER, content=planning_prompt),
             ],
             temperature=0.3,

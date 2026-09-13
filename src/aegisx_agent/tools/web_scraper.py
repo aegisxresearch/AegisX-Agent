@@ -218,7 +218,6 @@ class WebScraperTool(Tool):
 
     def _extract_all(self, html: str, url: str, max_length: int) -> ToolResult:
         """Extract everything."""
-        from urllib.parse import urljoin
 
         parts = [f"=== Full Extraction from {url} ===\n"]
 

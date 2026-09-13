@@ -76,8 +76,9 @@ class DateTimeTool(Tool):
                 output = (
                     f"Date 1: {d1.strftime('%Y-%m-%d %H:%M:%S')}\n"
                     f"Date 2: {d2.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"---\n"
-                    f"Difference: {days} days, {hours} hours, {minutes} minutes, {seconds} seconds\n"
+                    "---\n"
+                    f"Difference: {days} days, {hours} hours, "
+                    f"{minutes} minutes, {seconds} seconds\n"
                     f"Total days: {days}\n"
                     f"Total hours: {delta.total_seconds() / 3600:.2f}"
                 )

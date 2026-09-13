@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
 from enum import Enum
+from typing import Any
 
 
 class TaskStatus(str, Enum):
@@ -111,7 +110,10 @@ class ScheduledTask:
                 try:
                     parts = self.schedule_value.split(":")
                     if len(parts) == 3:
-                        day_map = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
+                        day_map = {
+                            "MON": 0, "TUE": 1, "WED": 2, "THU": 3,
+                            "FRI": 4, "SAT": 5, "SUN": 6,
+                        }
                         target_day = day_map.get(parts[0].upper(), 0)
                         hour, minute = int(parts[1]), int(parts[2])
                     else:
@@ -125,7 +127,9 @@ class ScheduledTask:
                         if next_dt <= now:
                             days_ahead = 7
                     else:
-                        next_dt = now.replace(hour=hour, minute=minute, second=0) + timedelta(days=days_ahead)
+                        next_dt = now.replace(
+                            hour=hour, minute=minute, second=0
+                        ) + timedelta(days=days_ahead)
                     return next_dt.isoformat()
                 except (ValueError, KeyError):
                     pass

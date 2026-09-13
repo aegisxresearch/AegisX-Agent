@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from aegisx_agent.tools.base import Tool, ToolResult, ToolRisk, ToolStatus
@@ -56,7 +55,10 @@ class DatabaseQueryTool(Tool):
                     "action": {
                         "type": "string",
                         "enum": ["query", "tables", "schema", "stats"],
-                        "description": "Action: query (execute SQL), tables (list tables), schema (describe table), stats (table stats)",
+                        "description": (
+                            "Action: query (execute SQL), tables (list tables), "
+                            "schema (describe table), stats (table stats)"
+                        ),
                         "default": "query",
                     },
                     "table": {
@@ -95,7 +97,11 @@ class DatabaseQueryTool(Tool):
         table = kwargs.get("table", "")
 
         if not database:
-            return ToolResult(status=ToolStatus.ERROR, output="", error="Database path/connection is required")
+            return ToolResult(
+                status=ToolStatus.ERROR,
+                output="",
+                error="Database path/connection is required",
+            )
 
         try:
             if database.startswith("postgresql://") or database.startswith("postgres://"):
@@ -124,11 +130,13 @@ class DatabaseQueryTool(Tool):
         try:
             if action == "tables":
                 cursor.execute(
-                    "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name"
+                    "SELECT name, type FROM sqlite_master"
+                    " WHERE type IN ('table', 'view') ORDER BY name"
                 )
                 rows = cursor.fetchall()
                 if not rows:
                     return ToolResult(status=ToolStatus.SUCCESS, output="No tables found")
+
 
                 output = f"Tables in {db_path}:\n\n"
                 output += f"{'Name':<30} {'Type':<10}\n"
@@ -171,7 +179,10 @@ class DatabaseQueryTool(Tool):
 
             else:
                 # Execute query (multi-statement support)
-                cursor.executescript(query) if ";" in query and not params else cursor.execute(query, params if params else [])
+                if ";" in query and not params:
+                    cursor.executescript(query)
+                else:
+                    cursor.execute(query, params if params else [])
                 conn.commit()
 
                 try:
@@ -231,7 +242,7 @@ class DatabaseQueryTool(Tool):
                     "UNION SELECT viewname, 'VIEW' FROM pg_views WHERE schemaname = 'public' "
                     "ORDER BY tablename"
                 )
-                output = f"Tables:\n\n"
+                output = "Tables:\n\n"
                 for row in rows:
                     output += f"  {row['tablename']:<30} ({row['tabletype']})\n"
                 output += f"\nTotal: {len(rows)}"
@@ -240,12 +251,16 @@ class DatabaseQueryTool(Tool):
             elif action == "schema" and table:
                 rows = await conn.fetch(
                     "SELECT column_name, data_type, is_nullable, column_default "
-                    "FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position",
+                    "FROM information_schema.columns"
+                    " WHERE table_name = $1 ORDER BY ordinal_position",
                     table,
                 )
                 output = f"Schema for '{table}':\n\n"
                 for row in rows:
-                    output += f"  {row['column_name']:<25} {row['data_type']:<20} nullable={row['is_nullable']}\n"
+                    output += (
+                        f"  {row['column_name']:<25} {row['data_type']:<20}"
+                        f" nullable={row['is_nullable']}\n"
+                    )
                 return ToolResult(status=ToolStatus.SUCCESS, output=output)
 
             elif action == "stats" and table:
@@ -257,7 +272,10 @@ class DatabaseQueryTool(Tool):
             else:
                 rows = await conn.fetch(query, *params)
                 if not rows:
-                    return ToolResult(status=ToolStatus.SUCCESS, output="Query executed. No rows returned.")
+                    return ToolResult(
+                        status=ToolStatus.SUCCESS,
+                        output="Query executed. No rows returned.",
+                    )
 
                 columns = list(rows[0].keys())
                 output = f"Results ({len(rows)} rows):\n\n"

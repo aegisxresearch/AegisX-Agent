@@ -127,9 +127,15 @@ class FileOperationsTool(Tool):
     def _list_dir(self, path: str, max_results: int) -> ToolResult:
         p = pathlib.Path(path).expanduser()
         if not p.exists():
-            return ToolResult(status=ToolStatus.ERROR, output="", error=f"Directory not found: {path}")
+            return ToolResult(
+                status=ToolStatus.ERROR,
+                output="",
+                error=f"Directory not found: {path}",
+            )
         if not p.is_dir():
-            return ToolResult(status=ToolStatus.ERROR, output="", error=f"Not a directory: {path}")
+            return ToolResult(
+                status=ToolStatus.ERROR, output="", error=f"Not a directory: {path}"
+            )
 
         entries = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
         lines = []
@@ -146,7 +152,9 @@ class FileOperationsTool(Tool):
 
     def _search_in_files(self, path: str, pattern: str, recursive: bool) -> ToolResult:
         if not pattern:
-            return ToolResult(status=ToolStatus.ERROR, output="", error="Search pattern is required")
+            return ToolResult(
+                status=ToolStatus.ERROR, output="", error="Search pattern is required"
+            )
 
         p = pathlib.Path(path).expanduser()
         if not p.exists():

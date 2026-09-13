@@ -26,7 +26,10 @@ class CodebaseTool(Tool):
                     "action": {
                         "type": "string",
                         "enum": ["structure", "find", "read", "search", "deps", "summary"],
-                        "description": "Action: structure (tree), find (files), read (code), search (content), deps (dependencies), summary (overview)",
+                        "description": (
+                            "Action: structure (tree), find (files), read (code), "
+                            "search (content), deps (dependencies), summary (overview)"
+                        ),
                     },
                     "path": {
                         "type": "string",
@@ -68,7 +71,9 @@ class CodebaseTool(Tool):
                 case "summary":
                     return self._project_summary(path)
                 case _:
-                    return ToolResult(status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}")
+                    return ToolResult(
+                        status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}"
+                    )
         except Exception as e:
             return ToolResult(status=ToolStatus.ERROR, output="", error=str(e))
 
@@ -76,9 +81,14 @@ class CodebaseTool(Tool):
         """Show directory tree."""
         p = Path(path).expanduser().resolve()
         if not p.exists():
-            return ToolResult(status=ToolStatus.ERROR, output="", error=f"Path not found: {path}")
+            return ToolResult(
+                status=ToolStatus.ERROR, output="", error=f"Path not found: {path}"
+            )
 
-        ignore_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".env", ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs"}
+        ignore_dirs = {
+            ".git", "node_modules", "__pycache__", ".venv", "venv", ".env",
+            ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
+        }
         ignore_exts = {".pyc", ".pyo", ".so", ".o", ".class", ".jar"}
 
         lines = []
@@ -183,7 +193,7 @@ class CodebaseTool(Tool):
             for f in files:
                 filepath = os.path.join(root, f)
                 try:
-                    with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
+                    with open(filepath, encoding="utf-8", errors="replace") as fh:
                         for i, line in enumerate(fh, 1):
                             if query.lower() in line.lower():
                                 rel = os.path.relpath(filepath, p)
@@ -224,7 +234,7 @@ class CodebaseTool(Tool):
                 import json
                 try:
                     data = json.loads(fp.read_text())
-                    deps.append(f"=== package.json dependencies ===")
+                    deps.append("=== package.json dependencies ===")
                     for k, v in data.get("dependencies", {}).items():
                         deps.append(f"  {k}: {v}")
                     for k, v in data.get("devDependencies", {}).items():
@@ -259,9 +269,13 @@ class CodebaseTool(Tool):
                 ext_counts[ext] = ext_counts.get(ext, 0) + 1
                 total_files += 1
 
-                if ext in {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"}:
+                code_exts = {
+                    ".py", ".js", ".ts", ".jsx", ".tsx",
+                    ".go", ".rs", ".java", ".rb", ".php",
+                }
+                if ext in code_exts:
                     try:
-                        with open(os.path.join(root, f), "r", encoding="utf-8", errors="replace") as fh:
+                        with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
                             total_lines += sum(1 for _ in fh)
                     except (PermissionError, UnicodeDecodeError):
                         pass
@@ -277,8 +291,12 @@ class CodebaseTool(Tool):
             output += f"  {ext:<10} {count} files\n"
 
         # Check for common configs
+        config_files = [
+            "pyproject.toml", "package.json", "go.mod", "Cargo.toml",
+            "Makefile", "Dockerfile", ".gitignore", "README.md",
+        ]
         configs = []
-        for f in ["pyproject.toml", "package.json", "go.mod", "Cargo.toml", "Makefile", "Dockerfile", ".gitignore", "README.md"]:
+        for f in config_files:
             if (p / f).exists():
                 configs.append(f)
         if configs:

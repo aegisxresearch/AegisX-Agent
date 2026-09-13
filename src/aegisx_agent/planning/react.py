@@ -37,7 +37,12 @@ class ExecutionPlan:
     current_step: int = 0
     status: str = "pending"  # pending, running, completed, failed
 
-    def add_step(self, thought: str, action: str | None = None, action_input: dict[str, Any] | None = None) -> PlanStep:
+    def add_step(
+        self,
+        thought: str,
+        action: str | None = None,
+        action_input: dict[str, Any] | None = None,
+    ) -> PlanStep:
         step = PlanStep(
             step_number=len(self.steps) + 1,
             thought=thought,
@@ -75,7 +80,9 @@ class ExecutionPlan:
 class PlanBuilder:
     """Builds execution plans using LLM reasoning."""
 
-    PLANNING_PROMPT = """You are a planning assistant. Given a user goal, break it down into concrete steps.
+    PLANNING_PROMPT = """You are a planning assistant.
+
+Given a user goal, break it down into concrete steps.
 
 For each step, provide:
 1. A clear thought explaining what needs to be done

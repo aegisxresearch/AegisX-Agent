@@ -129,7 +129,8 @@ class SessionStore:
         conn = sqlite3.connect(str(self.db_path))
         timestamp = datetime.now().isoformat()
         conn.execute(
-            "INSERT INTO sessions (session_id, timestamp, role, content, metadata) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (session_id, timestamp, role, content, metadata)"
+            " VALUES (?, ?, ?, ?, ?)",
             (session_id, timestamp, role, content, json.dumps(metadata or {})),
         )
         # Also insert into FTS

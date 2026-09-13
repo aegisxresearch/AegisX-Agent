@@ -78,9 +78,13 @@ class MultiFileEditorTool(Tool):
         try:
             match action:
                 case "edit":
-                    return self._edit_file(path, kwargs.get("old_code", ""), kwargs.get("new_code", ""), dry_run)
+                    return self._edit_file(
+                        path, kwargs.get("old_code", ""), kwargs.get("new_code", ""), dry_run
+                    )
                 case "insert":
-                    return self._insert_at_line(path, kwargs.get("line", 0), kwargs.get("content", ""), dry_run)
+                    return self._insert_at_line(
+                        path, kwargs.get("line", 0), kwargs.get("content", ""), dry_run
+                    )
                 case "append":
                     return self._append_to_file(path, kwargs.get("content", ""), dry_run)
                 case "batch":
@@ -88,14 +92,18 @@ class MultiFileEditorTool(Tool):
                 case "create":
                     return self._create_file(path, kwargs.get("content", ""), dry_run)
                 case _:
-                    return ToolResult(status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}")
+                    return ToolResult(
+                        status=ToolStatus.ERROR, output="", error=f"Unknown action: {action}"
+                    )
         except Exception as e:
             return ToolResult(status=ToolStatus.ERROR, output="", error=str(e))
 
     def _edit_file(self, path: str, old_code: str, new_code: str, dry_run: bool) -> ToolResult:
         """Find and replace code in a file."""
         if not path or not old_code:
-            return ToolResult(status=ToolStatus.ERROR, output="", error="path and old_code required")
+            return ToolResult(
+                status=ToolStatus.ERROR, output="", error="path and old_code required"
+            )
 
         p = Path(path).expanduser()
         if not p.exists():
@@ -147,11 +155,18 @@ class MultiFileEditorTool(Tool):
         # Show context
         start = max(0, line - 3)
         end = min(len(lines), line + 3)
-        context_before = "\n".join(f"{i+1:4d} │ {lines[i]}" for i in range(start, min(line - 1, len(lines))))
-        context_after = "\n".join(f"{i+1:4d} │ {lines[i]}" for i in range(line - 1, min(end, len(lines))))
-        new_lines_display = "\n".join(f"     + {l}" for l in insert_lines)
+        context_before = "\n".join(
+            f"{i+1:4d} │ {lines[i]}" for i in range(start, min(line - 1, len(lines)))
+        )
+        context_after = "\n".join(
+            f"{i+1:4d} │ {lines[i]}" for i in range(line - 1, min(end, len(lines)))
+        )
+        new_lines_display = "\n".join(f"     + {insert_line}" for insert_line in insert_lines)
 
-        preview = f"📝 Insert at line {line}:\n\n{context_before}\n{new_lines_display}\n{context_after}"
+        preview = (
+            f"📝 Insert at line {line}:\n\n{context_before}\n"
+            f"{new_lines_display}\n{context_after}"
+        )
 
         if dry_run:
             return ToolResult(status=ToolStatus.SUCCESS, output=preview)
@@ -160,7 +175,10 @@ class MultiFileEditorTool(Tool):
         for i, new_line in enumerate(insert_lines):
             lines.insert(line - 1 + i, new_line)
         p.write_text("\n".join(lines), encoding="utf-8")
-        return ToolResult(status=ToolStatus.SUCCESS, output=f"✅ Inserted {len(insert_lines)} lines at line {line}\n\n{preview}")
+        return ToolResult(
+            status=ToolStatus.SUCCESS,
+            output=f"✅ Inserted {len(insert_lines)} lines at line {line}\n\n{preview}",
+        )
 
     def _append_to_file(self, path: str, content: str, dry_run: bool) -> ToolResult:
         """Append code to end of file."""
@@ -204,7 +222,11 @@ class MultiFileEditorTool(Tool):
 
         p = Path(path).expanduser()
         if p.exists() and not dry_run:
-            return ToolResult(status=ToolStatus.ERROR, output="", error=f"File already exists: {path}")
+            return ToolResult(
+                status=ToolStatus.ERROR,
+                output="",
+                error=f"File already exists: {path}",
+            )
 
         preview = f"📝 Create {path} ({len(content.splitlines())} lines)"
 
@@ -213,4 +235,7 @@ class MultiFileEditorTool(Tool):
 
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return ToolResult(status=ToolStatus.SUCCESS, output=f"✅ Created {path} ({len(content.splitlines())} lines)")
+        line_count = len(content.splitlines())
+        return ToolResult(
+            status=ToolStatus.SUCCESS, output=f"✅ Created {path} ({line_count} lines)"
+        )

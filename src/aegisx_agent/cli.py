@@ -30,7 +30,11 @@ THEME = Theme({
 })
 
 console = Console(theme=THEME)
-app = typer.Typer(name="aegisx", help="🤖 AegisX Agent — Super-powered Agentic AI", rich_markup_mode="rich")
+app = typer.Typer(
+    name="aegisx",
+    help="🤖 AegisX Agent — Super-powered Agentic AI",
+    rich_markup_mode="rich",
+)
 
 # Global agent
 _agent = None
@@ -113,17 +117,26 @@ def _get_config(provider=None, model=None, api_key=None, custom_url=None):
         config.llm_provider = provider
     if model:
         match config.llm_provider.value:
-            case "openai": config.openai_model = model
-            case "anthropic": config.anthropic_model = model
-            case "ollama": config.ollama_model = model
-            case "groq": config.groq_model = model
-            case "custom": config.custom_model = model
+            case "openai":
+                config.openai_model = model
+            case "anthropic":
+                config.anthropic_model = model
+            case "ollama":
+                config.ollama_model = model
+            case "groq":
+                config.groq_model = model
+            case "custom":
+                config.custom_model = model
     if api_key:
         match config.llm_provider.value:
-            case "openai": config.openai_api_key = api_key
-            case "anthropic": config.anthropic_api_key = api_key
-            case "groq": config.groq_api_key = api_key
-            case "custom": config.custom_api_key = api_key
+            case "openai":
+                config.openai_api_key = api_key
+            case "anthropic":
+                config.anthropic_api_key = api_key
+            case "groq":
+                config.groq_api_key = api_key
+            case "custom":
+                config.custom_api_key = api_key
     if custom_url:
         config.custom_base_url = custom_url
 
@@ -413,7 +426,9 @@ def _handle_slash_command(cmd: str, agent) -> bool:
 
             skills = agent.list_skills()
             if not skills:
-                console.print("[dim]No skills learned yet. Skills auto-create after complex tasks.[/dim]")
+                console.print(
+                    "[dim]No skills learned yet. Skills auto-create after complex tasks.[/dim]"
+                )
             else:
                 table = Table(title="💡 Learned Skills", border_style="magenta")
                 table.add_column("Name", style="bold")
@@ -446,7 +461,8 @@ def _handle_slash_command(cmd: str, agent) -> bool:
         case "/sessions":
             stats = agent.get_session_stats()
             console.print(Panel(
-                f"Sessions: [cyan]{stats['total_sessions']}[/cyan] | Messages: [cyan]{stats['total_messages']}[/cyan]",
+                f"Sessions: [cyan]{stats['total_sessions']}[/cyan]"
+                f" | Messages: [cyan]{stats['total_messages']}[/cyan]",
                 title="📊 Session Stats", border_style="cyan",
             ))
             return True
@@ -540,7 +556,9 @@ async def _permission_prompt(request) -> bool:
     if answer == "a":
         if _agent is not None:
             _agent.permission_gate.allow(request.tool)
-        console.print(f"[success]✅ '{request.tool}' is now allow-listed for this session[/success]")
+        console.print(
+            f"[success]✅ '{request.tool}' is now allow-listed for this session[/success]"
+        )
         return True
     return answer == "y"
 
@@ -658,13 +676,19 @@ def _handle_code_command(args: str, agent):
 
     match subcmd:
         case "structure" | "tree":
-            result = asyncio.run(agent.tools.execute("codebase", {"action": "structure", "path": arg}))
+            result = asyncio.run(
+                agent.tools.execute("codebase", {"action": "structure", "path": arg})
+            )
             console.print(result.output)
         case "find":
-            result = asyncio.run(agent.tools.execute("codebase", {"action": "find", "path": ".", "query": arg}))
+            result = asyncio.run(
+                agent.tools.execute("codebase", {"action": "find", "path": ".", "query": arg})
+            )
             console.print(result.output)
         case "search":
-            result = asyncio.run(agent.tools.execute("codebase", {"action": "search", "path": ".", "query": arg}))
+            result = asyncio.run(
+                agent.tools.execute("codebase", {"action": "search", "path": ".", "query": arg})
+            )
             console.print(result.output)
         case "read":
             result = asyncio.run(agent.tools.execute("codebase", {"action": "read", "path": arg}))
@@ -673,7 +697,9 @@ def _handle_code_command(args: str, agent):
             result = asyncio.run(agent.tools.execute("codebase", {"action": "deps", "path": arg}))
             console.print(result.output)
         case "summary":
-            result = asyncio.run(agent.tools.execute("codebase", {"action": "summary", "path": arg}))
+            result = asyncio.run(
+                agent.tools.execute("codebase", {"action": "summary", "path": arg})
+            )
             console.print(result.output)
         case _:
             console.print("[dim]Usage:[/dim]")
@@ -702,7 +728,9 @@ def _handle_git_command(args: str, agent):
             if not arg:
                 console.print("[dim]Usage: /git commit <message>[/dim]")
             else:
-                result = asyncio.run(agent.tools.execute("git", {"action": "commit", "message": arg}))
+                result = asyncio.run(
+                    agent.tools.execute("git", {"action": "commit", "message": arg})
+                )
                 console.print(result.output)
         case "log" | "lg":
             result = asyncio.run(agent.tools.execute("git", {"action": "log"}))
@@ -1257,9 +1285,11 @@ def plan(
         table.add_column("Thought", max_width=40)
         table.add_column("Action", style="yellow")
         table.add_column("Status")
+        status_icons = {"completed": "✅", "failed": "❌", "running": "🔄", "pending": "⏳"}
         for step in plan_result.steps:
-            icon = {"completed": "✅", "failed": "❌", "running": "🔄", "pending": "⏳"}.get(step.status, "?")
-            table.add_row(str(step.step_number), step.thought[:100], step.action or "-", f"{icon} {step.status}")
+            icon = status_icons.get(step.status, "?")
+            detail = f"{icon} {step.status}"
+            table.add_row(str(step.step_number), step.thought[:100], step.action or "-", detail)
         console.print(table)
     except Exception as e:
         console.print(f"[error]Planning failed: {e}[/error]")

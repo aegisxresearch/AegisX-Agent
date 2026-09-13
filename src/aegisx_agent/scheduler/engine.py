@@ -13,11 +13,12 @@ import asyncio
 import json
 import sqlite3
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from aegisx_agent.scheduler.task import ScheduleType, ScheduledTask, TaskStatus
+from aegisx_agent.scheduler.task import ScheduledTask, ScheduleType, TaskStatus
 
 
 class Scheduler:
@@ -81,7 +82,8 @@ class Scheduler:
         """Load all tasks from database."""
         conn = sqlite3.connect(str(self.db_path))
         rows = conn.execute("SELECT * FROM scheduled_tasks").fetchall()
-        columns = [desc[0] for desc in conn.execute("SELECT * FROM scheduled_tasks LIMIT 0").description]
+        schema_rows = conn.execute("SELECT * FROM scheduled_tasks LIMIT 0")
+        columns = [desc[0] for desc in schema_rows.description]
         conn.close()
 
         for row in rows:
@@ -118,7 +120,8 @@ class Scheduler:
         """Log a task execution."""
         conn = sqlite3.connect(str(self.db_path))
         conn.execute(
-            "INSERT INTO task_logs (task_id, timestamp, status, result, duration_seconds) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO task_logs (task_id, timestamp, status, result, duration_seconds)"
+            " VALUES (?, ?, ?, ?, ?)",
             (task_id, datetime.now().isoformat(), status, result[:5000], duration),
         )
         conn.commit()
