@@ -359,6 +359,10 @@ aegisx_agent/
     └── loader.py        # Custom persona loader
 ```
 
+## 📜 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for notable changes and bug fixes.
+
 ## 📄 License
 
 MIT
