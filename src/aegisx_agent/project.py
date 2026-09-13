@@ -159,7 +159,7 @@ def _count_files(root: Path, limit: int = _MAX_FILE_COUNT) -> int:
     count = 0
     for current, dirs, files in os.walk(root, followlinks=False):
         # Only the ignore list is skipped: a hidden directory such as
-        # ``.freebuff`` is part of the project and must be counted.
+        # ``.github`` is part of the project and must be counted.
         dirs[:] = [
             d for d in dirs if d not in _IGNORED_DIRS and not d.endswith(".egg-info")
         ]

@@ -72,9 +72,12 @@ def test_files_are_counted_but_vendor_dirs_are_skipped(tmp_path) -> None:
 
 
 def test_hidden_project_directories_are_counted(tmp_path) -> None:
-    """``.freebuff``-style hidden folders are project content, not noise."""
-    (tmp_path / ".freebuff").mkdir()
-    (tmp_path / ".freebuff" / "skill.md").write_text("")
+    """A hidden folder such as ``.github`` is project content, not noise —
+    while the ignored ``.git`` directory still stays out of the count."""
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "ci.yml").write_text("")
+    (tmp_path / ".git" / "objects").mkdir(parents=True)
+    (tmp_path / ".git" / "objects" / "deadbeef").write_text("")
 
     assert detect_project(tmp_path).file_count == 1
 
