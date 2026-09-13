@@ -16,6 +16,7 @@ from fake_llm import (
     openai_text_response,
     openai_tool_call_response,
     sse_text,
+    sse_tool_call,
     too_many_requests,
 )
 from support import run
@@ -23,7 +24,7 @@ from support import run
 from aegisx_agent.config import AgentConfig, LLMProvider
 from aegisx_agent.core import AegisXAgent
 from aegisx_agent.llm.anthropic_provider import AnthropicProvider
-from aegisx_agent.llm.base import Message, Role
+from aegisx_agent.llm.base import LLMResponse, Message, Role
 from aegisx_agent.llm.custom_provider import CustomProvider
 
 
@@ -134,15 +135,20 @@ def test_streaming_round_trip_delivers_chunks(fake_llm: FakeLLMServer) -> None:
         model="fake-model", api_key="test-key", base_url=fake_llm.base_url
     )
 
-    chunks = run(_collect(provider.stream_chat([Message(role=Role.USER, content="hi")])))
+    items = run(_collect(provider.stream_chat([Message(role=Role.USER, content="hi")])))
 
-    assert "".join(chunks) == "Hello!"
+    # Text chunks first, then the terminal LLMResponse (stream == chat).
+    assert "".join(piece for piece in items[:-1] if isinstance(piece, str)) == "Hello!"
+    final = items[-1]
+    assert isinstance(final, LLMResponse)
+    assert final.content == "Hello!"
+    assert not final.has_tool_calls
     assert fake_llm.requests[0][1]["stream"] is True
 
 
 def test_chat_stream_runs_tools_then_streams(fake_llm: FakeLLMServer, tmp_path) -> None:
     fake_llm.script(
-        openai_tool_call_response("call_s1", "calculator", '{"expression": "7*6"}'),
+        sse_tool_call("call_s1", "calculator", '{"expression": "7*6"}'),
         sse_text(["42", " it is"]),
     )
     agent = _openai_agent(fake_llm, tmp_path)

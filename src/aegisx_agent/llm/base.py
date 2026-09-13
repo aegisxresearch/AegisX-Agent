@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -119,6 +120,43 @@ class LLMProvider(ABC):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ):
-        """Stream a chat completion response."""
+    ) -> AsyncIterator[str | LLMResponse]:
+        """Stream a chat completion response.
+
+        Yields text chunks as they arrive, then a final ``LLMResponse``
+        containing the complete text, tool calls, finish reason, and usage.
+        Consumers that only want plain text can ignore the final item;
+        consumers that need tool calls can wait for it.
+        """
         ...
+
+    async def run_streaming(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        on_chunk: Any = None,
+    ) -> LLMResponse:
+        """Stream one completion, forward chunks to ``on_chunk``, return the result.
+
+        This is the single-request path: one HTTP call yields both the live
+        text and the final structured response (with tool calls), so callers
+        never need a separate non-streaming probe before streaming.
+        """
+        collected: LLMResponse | None = None
+        async for item in self.stream_chat(
+            messages=messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            if isinstance(item, LLMResponse):
+                collected = item
+            elif on_chunk is not None:
+                on_chunk(item)
+        if collected is None:
+            raise RuntimeError(
+                f"{type(self).__name__}.stream_chat yielded no final LLMResponse"
+            )
+        return collected

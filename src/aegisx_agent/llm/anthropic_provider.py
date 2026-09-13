@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -171,8 +172,13 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ):
-        """Stream Anthropic response."""
+    ) -> AsyncIterator[str | LLMResponse]:
+        """Stream Anthropic response (text chunks, then a final response).
+
+        Mirrors ``OpenAIProvider.stream_chat``: text deltas are yielded as
+        they arrive, and the last yielded item is an ``LLMResponse`` holding
+        the full text, any ``tool_use`` blocks, the stop reason, and usage.
+        """
         self._validate_config()
         system_prompt, converted_messages = self._convert_messages(messages)
 
@@ -188,6 +194,11 @@ class AnthropicProvider(LLMProvider):
         if tools:
             payload["tools"] = self._convert_tools(tools)
 
+        content_parts: list[str] = []
+        tool_calls_by_index: dict[int, dict[str, Any]] = {}
+        stop_reason: str | None = None
+        usage: dict[str, Any] = {}
+
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream(
                 "POST",
@@ -200,12 +211,66 @@ class AnthropicProvider(LLMProvider):
                 json=payload,
             ) as resp:
                 resp.raise_for_status()
-                import json
 
                 async for line in resp.aiter_lines():
-                    if line.startswith("data: "):
-                        chunk = json.loads(line[6:])
-                        if chunk.get("type") == "content_block_delta":
-                            delta = chunk.get("delta", {})
-                            if delta.get("type") == "text_delta":
-                                yield delta.get("text", "")
+                    if not line.startswith("data: "):
+                        continue
+                    payload_text = line[6:].strip()
+                    if not payload_text or payload_text == "[DONE]":
+                        # [DONE] is OpenAI's terminator, not Anthropic's — but
+                        # some proxies append it to every SSE stream anyway.
+                        continue
+                    try:
+                        chunk = json.loads(payload_text)
+                    except json.JSONDecodeError:
+                        # Skip keep-alive noise from intermediaries.
+                        continue
+                    event_type = chunk.get("type", "")
+
+                    if event_type == "message_start":
+                        usage.update(chunk.get("message", {}).get("usage", {}))
+                    elif event_type == "content_block_start":
+                        block = chunk.get("content_block", {})
+                        if block.get("type") == "tool_use":
+                            tool_calls_by_index[chunk.get("index", 0)] = {
+                                "id": block.get("id", ""),
+                                "name": block.get("name", ""),
+                                "arguments": "",
+                            }
+                    elif event_type == "content_block_delta":
+                        delta = chunk.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            piece = delta.get("text", "")
+                            if piece:
+                                content_parts.append(piece)
+                                yield piece
+                        elif delta.get("type") == "input_json_delta":
+                            index = chunk.get("index", 0)
+                            if index in tool_calls_by_index:
+                                tool_calls_by_index[index]["arguments"] += delta.get(
+                                    "partial_json", ""
+                                )
+                    elif event_type == "message_delta":
+                        stop_reason = chunk.get("delta", {}).get("stop_reason", stop_reason)
+                        usage.update(chunk.get("usage", {}))
+
+        tool_calls = [
+            ToolCall.from_anthropic(
+                {
+                    "id": entry["id"],
+                    "name": entry["name"],
+                    # No partial_json deltas means the tool takes no input.
+                    "input": entry["arguments"] or {},
+                }
+            )
+            for _, entry in sorted(tool_calls_by_index.items())
+        ]
+        full_content = "".join(content_parts) or None
+
+        yield LLMResponse(
+            content=full_content,
+            tool_calls=tool_calls,
+            finish_reason=stop_reason,
+            usage=usage,
+            raw={},
+        )

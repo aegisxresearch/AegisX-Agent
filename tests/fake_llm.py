@@ -95,6 +95,120 @@ def sse_text(pieces: list[str]) -> dict[str, Any]:
     return {"sse": frames + "data: [DONE]\n\n"}
 
 
+def sse_tool_call(
+    call_id: str, name: str, arguments: str, content: str | None = None
+) -> dict[str, Any]:
+    """A streaming OpenAI reply requesting a tool call, the way real servers do.
+
+    The call arrives as a ``tool_calls`` delta (name, then argument chunks);
+    an optional ``content`` piece precedes it, and the stream closes with a
+    ``finish_reason: tool_calls`` chunk before ``[DONE]``.
+    """
+    frames = ""
+    if content:
+        frames += (
+            "data: "
+            + json.dumps({"choices": [{"delta": {"content": content}}]})
+            + "\n\n"
+        )
+    frames += (
+        "data: "
+        + json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {"name": name, "arguments": ""},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        + "\n\n"
+    )
+    frames += (
+        "data: "
+        + json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {"arguments": arguments},
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        + "\n\n"
+    )
+    frames += (
+        "data: "
+        + json.dumps(
+            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}
+        )
+        + "\n\n"
+    )
+    return {"sse": frames + "data: [DONE]\n\n"}
+
+
+def anthropic_sse_text(pieces: list[str]) -> dict[str, Any]:
+    """A streaming Anthropic reply emitting ``pieces`` as text blocks."""
+    frames = ""
+    for index, piece in enumerate(pieces):
+        frames += (
+            "data: "
+            + json.dumps(
+                {
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {"type": "text", "text": ""},
+                }
+            )
+            + "\n\n"
+        )
+        frames += (
+            "data: "
+            + json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "index": index,
+                    "delta": {"type": "text_delta", "text": piece},
+                }
+            )
+            + "\n\n"
+        )
+        frames += (
+            "data: "
+            + json.dumps({"type": "content_block_stop", "index": index})
+            + "\n\n"
+        )
+    frames += (
+        "data: "
+        + json.dumps(
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 2},
+            }
+        )
+        + "\n\n"
+    )
+    frames += 'data: {"type":"message_stop"}\n\n'
+    return {"sse": frames}
+
+
 def too_many_requests(retry_after: str = "0") -> dict[str, Any]:
     """A 429 entry; ``retry-after: 0`` keeps the retry test fast."""
     return {"status": 429, "headers": {"retry-after": retry_after}, "body": {"error": "slow down"}}

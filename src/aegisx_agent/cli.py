@@ -1183,57 +1183,23 @@ def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
             console.print(Panel(Markdown(response), title="🤖 AegisX", border_style="green"))
             console.print()
         else:
-            # Streaming mode: first check if tools needed
-            from aegisx_agent.llm.base import Message, Role
-            system_prompt = agent._build_system_prompt()
-            messages = [Message(role=Role.SYSTEM, content=system_prompt)] + list(agent.conversation.get_context())
-            tool_schemas = agent.tools.list_schemas() or None
+            # Streaming mode: ONE request per turn. Tool calls are parsed from
+            # the stream itself, so there is no separate probe request — and
+            # tool turns stream live instead of falling back to a panel.
+            progress.stop()
+            time.sleep(0.1)
+            console.print()
+            console.print("[bold green]🤖 AegisX:[/bold green] ", end="")
 
-            # Quick check: does LLM want to use tools?
-            check_response = asyncio.run(agent.llm.chat(
-                messages=messages,
-                tools=tool_schemas,
-                temperature=agent.config.temperature,
-                max_tokens=agent.config.max_tokens,
-            ))
+            async def _stream():
+                async for chunk in agent.chat_stream(user_message):
+                    # Typewriter effect (tool status lines included)
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+                    time.sleep(0.02)  # Smooth typing speed
 
-            if check_response.has_tool_calls:
-                # Tools needed — use full agentic loop (non-streaming)
-                response = asyncio.run(agent.chat(user_message))
-                progress.stop()
-                time.sleep(0.15)
-                console.print()
-                console.print(Panel(Markdown(response), title="🤖 AegisX", border_style="green"))
-                console.print()
-            else:
-                # No tools — stream the response!
-                progress.stop()
-                time.sleep(0.1)
-                console.print()
-                console.print("[bold green]🤖 AegisX:[/bold green] ", end="")
-
-                full_response = ""
-                async def _stream():
-                    nonlocal full_response
-                    agent.conversation.add(Message(role=Role.USER, content=user_message))
-                    messages_with_user = [Message(role=Role.SYSTEM, content=system_prompt)] + list(agent.conversation.get_context())
-                    async for chunk in agent.llm.stream_chat(
-                        messages=messages_with_user,
-                        temperature=agent.config.temperature,
-                        max_tokens=agent.config.max_tokens,
-                    ):
-                        full_response += chunk
-                        # Typewriter effect
-                        sys.stdout.write(chunk)
-                        sys.stdout.flush()
-                        time.sleep(0.02)  # Smooth typing speed
-
-                asyncio.run(_stream())
-                agent.conversation.add(Message(role=Role.ASSISTANT, content=full_response))
-                # Save to session store
-                agent.session_store.save_message(agent.session_id, "user", user_message)
-                agent.session_store.save_message(agent.session_id, "assistant", full_response)
-                console.print("\n")
+            asyncio.run(_stream())
+            console.print("\n")
     except Exception:
         progress.stop()
         time.sleep(0.1)

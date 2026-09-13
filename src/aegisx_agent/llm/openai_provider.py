@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -98,8 +100,15 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ):
-        """Stream chat response (yields text chunks)."""
+    ) -> AsyncIterator[str | LLMResponse]:
+        """Stream a chat completion (yields text chunks, then a final response).
+
+        The last item yielded is always an ``LLMResponse`` carrying the full
+        text, any tool calls parsed from ``tool_calls`` deltas, the finish
+        reason, and usage. That makes streaming a complete replacement for a
+        non-streaming ``chat()`` call — the agent loop can stream every turn
+        instead of spending one full request just to probe for tools.
+        """
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_dict() for m in messages],
@@ -110,6 +119,11 @@ class OpenAIProvider(LLMProvider):
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+
+        content_parts: list[str] = []
+        tool_calls_by_index: dict[int, dict[str, Any]] = {}
+        finish_reason: str | None = None
+        usage: dict[str, Any] = {}
 
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream(
@@ -123,10 +137,59 @@ class OpenAIProvider(LLMProvider):
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
-                    if line.startswith("data: ") and line != "data: [DONE]":
-                        import json
+                    if not line.startswith("data: "):
+                        continue
+                    payload_text = line[6:]
+                    if payload_text.strip() == "[DONE]":
+                        break
+                    chunk = json.loads(payload_text)
 
-                        chunk = json.loads(line[6:])
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        if "content" in delta and delta["content"]:
-                            yield delta["content"]
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+
+                    delta = choice.get("delta") or {}
+                    piece = delta.get("content")
+                    if piece:
+                        content_parts.append(piece)
+                        yield piece
+
+                    for call_delta in delta.get("tool_calls") or []:
+                        index = call_delta.get("index", 0)
+                        entry = tool_calls_by_index.setdefault(
+                            index, {"id": "", "name": "", "arguments": ""}
+                        )
+                        if call_delta.get("id"):
+                            entry["id"] = call_delta["id"]
+                        function = call_delta.get("function") or {}
+                        if function.get("name"):
+                            entry["name"] = (
+                                entry["name"] + function["name"]
+                                if entry["name"] and not call_delta.get("id")
+                                else function["name"]
+                            )
+                        if function.get("arguments"):
+                            entry["arguments"] += function["arguments"]
+
+        tool_calls = [
+            ToolCall(
+                id=entry["id"] or f"call_{index}",
+                name=entry["name"],
+                arguments=entry["arguments"],
+            )
+            for index, entry in sorted(tool_calls_by_index.items())
+        ]
+        full_content = "".join(content_parts) or None
+
+        yield LLMResponse(
+            content=full_content,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            usage=usage,
+            raw={},
+        )

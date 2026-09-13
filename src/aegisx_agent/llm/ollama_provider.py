@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -101,8 +103,14 @@ class OllamaProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ):
-        """Stream Ollama response."""
+    ) -> AsyncIterator[str | LLMResponse]:
+        """Stream Ollama response (text chunks, then a final response).
+
+        Ollama streams NDJSON lines rather than SSE frames. Text deltas are
+        yielded as they arrive; the last yielded item is an ``LLMResponse``
+        with the full text, any tool calls, and token usage from the final
+        ``done`` line — so streaming fully replaces a non-streaming call.
+        """
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": self._convert_messages(messages),
@@ -112,14 +120,47 @@ class OllamaProvider(LLMProvider):
         if tools:
             payload["tools"] = self._convert_tools(tools)
 
+        content_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        usage: dict[str, int] = {}
+
         async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream("POST", f"{self.base_url}/api/chat", json=payload) as resp:
                 resp.raise_for_status()
-                import json
 
                 async for line in resp.aiter_lines():
-                    if line.strip():
-                        chunk = json.loads(line)
-                        content = chunk.get("message", {}).get("content", "")
-                        if content:
-                            yield content
+                    if not line.strip():
+                        continue
+                    chunk = json.loads(line)
+                    message = chunk.get("message") or {}
+
+                    piece = message.get("content", "")
+                    if piece:
+                        content_parts.append(piece)
+                        yield piece
+
+                    for index, call in enumerate(message.get("tool_calls") or []):
+                        func = call.get("function", {})
+                        tool_calls.append(
+                            ToolCall(
+                                id=f"ollama_{len(tool_calls)}_{func.get('name', '')}",
+                                name=func.get("name", ""),
+                                arguments=normalise_tool_arguments(
+                                    func.get("arguments", {})
+                                ),
+                            )
+                        )
+
+                    if chunk.get("done"):
+                        usage = {
+                            "prompt_tokens": chunk.get("prompt_eval_count", 0),
+                            "completion_tokens": chunk.get("eval_count", 0),
+                        }
+
+        yield LLMResponse(
+            content="".join(content_parts) or None,
+            tool_calls=tool_calls,
+            finish_reason="tool_calls" if tool_calls else "stop",
+            usage=usage,
+            raw={},
+        )

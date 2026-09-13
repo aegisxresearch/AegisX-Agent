@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -349,62 +350,64 @@ class AegisXAgent:
         return response
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
-        """Send a message and stream the response."""
+        """Send a message and stream the response — ONE LLM call per turn.
+
+        Tool calls are parsed from the stream itself, so a toolless turn costs
+        exactly one request instead of a full non-streaming probe plus the
+        real request. Text deltas are yielded live, tool executions emit a
+        status line, and a completed turn is finished exactly like ``chat()``:
+        memory, session store, and skill capture all run on the final trace.
+        """
         self.conversation.add(Message(role=Role.USER, content=user_message))
 
         system_prompt = self._build_system_prompt()
         messages = list(self.conversation.get_context())
         tool_schemas = self.tools.list_schemas() or None
 
-        # First check if tools are needed
-        response = await self.llm.chat(
-            messages=[Message(role=Role.SYSTEM, content=system_prompt)] + messages,
-            tools=tool_schemas,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-        )
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        if response.has_tool_calls:
-            # Execute tools, show status, then stream final answer
-            tool_calls_dicts = [
-                {"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.arguments}}
-                for tc in response.tool_calls
-            ]
-            messages.append(
-                Message(role=Role.ASSISTANT, content=response.content or "", tool_calls=tool_calls_dicts)
-            )
-            for tc in response.tool_calls:
-                result = await self.tools.execute(tc.name, tc.arguments)
-                status = "✅" if result.is_success else "❌"
-                yield f"\n🔧 {tc.name}: {status}\n"
-                messages.append(
-                    Message(
-                        role=Role.TOOL,
-                        content=result.to_llm_message(),
-                        tool_call_id=tc.id,
-                        name=tc.name,
-                    )
+        async def _drive() -> None:
+            def _on_chunk(piece: str) -> None:
+                queue.put_nowait(piece)
+
+            def _on_tool_result(name: str, success: bool) -> None:
+                queue.put_nowait(f"\n🔧 {name}: {'✅' if success else '❌'}\n")
+
+            try:
+                response, trace = await self.agent_loop.run_streaming(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    tool_schemas=tool_schemas,
+                    on_chunk=_on_chunk,
+                    on_tool_result=_on_tool_result,
                 )
+            finally:
+                queue.put_nowait(None)
 
-            full_response = ""
-            async for chunk in self.llm.stream_chat(
-                messages=[Message(role=Role.SYSTEM, content=system_prompt)] + messages,
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-            ):
-                full_response += chunk
-                yield chunk
-            self.conversation.add(Message(role=Role.ASSISTANT, content=full_response))
-        else:
-            full_response = ""
-            async for chunk in self.llm.stream_chat(
-                messages=[Message(role=Role.SYSTEM, content=system_prompt)] + messages,
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-            ):
-                full_response += chunk
-                yield chunk
-            self.conversation.add(Message(role=Role.ASSISTANT, content=full_response))
+            # The loop only reaches here on a completed turn, so the same
+            # bookkeeping as chat() applies.
+            self.conversation.add(Message(role=Role.ASSISTANT, content=response))
+            self.session_store.save_message(self.session_id, "user", user_message)
+            self.session_store.save_message(self.session_id, "assistant", response)
+            await self._maybe_create_skill(user_message, response, trace)
+
+        task = asyncio.create_task(_drive())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+            # Propagate loop failures (connection errors, bad config, …).
+            await task
+        finally:
+            # Consumer walked away mid-stream: stop the turn behind it.
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     async def chat_with_trace(self, user_message: str) -> tuple[str, AgentTrace]:
         """Chat with full execution trace for debugging."""

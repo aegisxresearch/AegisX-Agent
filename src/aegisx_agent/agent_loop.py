@@ -157,6 +157,52 @@ class AgenticLoop:
         tool_schemas: list[dict[str, Any]] | None = None,
     ) -> tuple[str, AgentTrace]:
         """Run the agentic loop. Returns (final_response, trace)."""
+        return await self._run(
+            messages,
+            system_prompt,
+            tool_schemas,
+            on_chunk=None,
+            on_tool_result=None,
+            use_stream=False,
+        )
+
+    async def run_streaming(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_schemas: list[dict[str, Any]] | None = None,
+        on_chunk: Any = None,
+        on_tool_result: Any = None,
+    ) -> tuple[str, AgentTrace]:
+        """Run the agentic loop over streamed completions.
+
+        Each iteration is ONE streamed request: text deltas are forwarded to
+        ``on_chunk`` as they arrive and tool calls are read from the final
+        response of the same request. A toolless turn therefore costs exactly
+        one LLM call, where the old streaming flow paid a full non-streaming
+        probe on top of the real request. ``on_tool_result(name, success)``
+        fires after each tool execution so UIs can show live status.
+        """
+        return await self._run(
+            messages,
+            system_prompt,
+            tool_schemas,
+            on_chunk=on_chunk,
+            on_tool_result=on_tool_result,
+            use_stream=True,
+        )
+
+    async def _run(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        tool_schemas: list[dict[str, Any]] | None,
+        on_chunk: Any,
+        on_tool_result: Any,
+        use_stream: bool,
+    ) -> tuple[str, AgentTrace]:
+        """Shared loop body: non-streaming keeps provider retries, streaming
+        forwards live deltas. Everything else is identical."""
         trace = AgentTrace(goal=messages[-1].content if messages else "")
         start_time = time.time()
 
@@ -167,13 +213,23 @@ class AgenticLoop:
         for iteration in range(self.max_iterations):
             step = AgentStep(iteration=iteration + 1, thought="")
 
-            # Get LLM response
-            response = await self.llm.chat(
-                messages=working_messages,
-                tools=tool_schemas,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
+            if use_stream:
+                # ONE streamed request per iteration; deltas flow to on_chunk.
+                response = await self.llm.run_streaming(
+                    messages=working_messages,
+                    tools=tool_schemas,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    on_chunk=on_chunk,
+                )
+            else:
+                # Non-streaming: providers keep their 429 retry logic here.
+                response = await self.llm.chat(
+                    messages=working_messages,
+                    tools=tool_schemas,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
 
             trace.total_tokens += response.usage.get("total_tokens", 0)
 
@@ -202,6 +258,10 @@ class AgenticLoop:
                 for r in tool_results
             ]
             trace.total_tool_calls += len(response.tool_calls)
+
+            if on_tool_result is not None:
+                for r in tool_results:
+                    on_tool_result(r["name"], r["success"])
 
             # Add to working messages
             tool_calls_dicts = [
@@ -256,6 +316,46 @@ class AgenticLoop:
 
         # Max iterations — force final answer
         final = await self._get_final_answer(working_messages)
+        trace.final_response = final
+        trace.duration_seconds = time.time() - start_time
+        return final, trace
+
+    async def toolless_stream(
+        self,
+        messages: list[Message],
+        system_prompt: str,
+        on_chunk: Any = None,
+    ) -> tuple[str, AgentTrace]:
+        """Stream one completion with no tools offered (single LLM call).
+
+        Used when a registry has no tools, or by callers that want the live
+        tokens of a plain chat without the loop around it. Tool calls coming
+        back from such a stream are a model hallucination: they are reported
+        in the returned trace instead of being executed.
+        """
+        trace = AgentTrace(goal=messages[-1].content if messages else "")
+        start_time = time.time()
+        working_messages = [Message(role=Role.SYSTEM, content=system_prompt)] + list(messages)
+
+        response = await self.llm.run_streaming(
+            messages=working_messages,
+            tools=None,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            on_chunk=on_chunk,
+        )
+        trace.total_tokens += response.usage.get("total_tokens", 0)
+
+        final = response.content or ""
+        step = AgentStep(
+            iteration=1,
+            thought=final[:500],
+            outcome=StepOutcome.COMPLETED,
+        )
+        step.tool_calls = [
+            {"name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
+        ]
+        trace.steps.append(step)
         trace.final_response = final
         trace.duration_seconds = time.time() - start_time
         return final, trace
@@ -333,7 +433,10 @@ class AgenticLoop:
         try:
             response = await self.llm.chat(
                 messages=[
-                    Message(role=Role.SYSTEM, content="You are a self-reflection module. Respond with JSON only."),
+                    Message(
+                        role=Role.SYSTEM,
+                        content="You are a self-reflection module. Respond with JSON only.",
+                    ),
                     Message(role=Role.USER, content=prompt),
                 ],
                 temperature=0.3,
@@ -363,7 +466,10 @@ class AgenticLoop:
         try:
             response = await self.llm.chat(
                 messages=[
-                    Message(role=Role.SYSTEM, content="You are an error recovery module. Respond with JSON only."),
+                    Message(
+                        role=Role.SYSTEM,
+                        content="You are an error recovery module. Respond with JSON only.",
+                    ),
                     Message(role=Role.USER, content=prompt),
                 ],
                 temperature=0.3,

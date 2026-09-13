@@ -112,4 +112,27 @@ class ScriptedLLM(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ):
-        yield ""
+        response = await self.chat(
+            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+        )
+        if response.content:
+            yield response.content
+        yield response
+
+    async def run_streaming(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        on_chunk: Any = None,
+    ) -> LLMResponse:
+        """Replay one scripted response, optionally forwarding its text."""
+        response = await self.chat(
+            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+        )
+        if on_chunk is not None and response.content:
+            # Emit the text in small pieces, like a real stream would.
+            for i in range(0, len(response.content), 3):
+                on_chunk(response.content[i : i + 3])
+        return response
