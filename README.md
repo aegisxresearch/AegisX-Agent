@@ -234,6 +234,9 @@ aegisx search "what is the API rate limit?"
 
 Supported formats: `.txt`, `.md`, `.py`, `.js`, `.ts`, `.json`, `.yaml`, `.toml`, `.pdf`
 
+Requires ChromaDB (`pip install chromadb`) — everything else the agent needs
+is installed by default.
+
 ## 🧪 Tests
 
 ```bash

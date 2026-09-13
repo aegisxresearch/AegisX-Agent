@@ -1347,6 +1347,76 @@ def tools():
 
 
 @app.command()
+def ingest(
+    path: Path = typer.Argument(
+        ..., exists=True, readable=True, help="File or directory to ingest"
+    ),
+) -> None:
+    """Ingest documents into the RAG knowledge base."""
+    from aegisx_agent.rag.engine import RAGEngine
+
+    agent = _get_agent()
+    engine = RAGEngine(
+        persist_dir=agent.config.vector_store_path,
+        chunk_size=agent.config.rag_chunk_size,
+        chunk_overlap=agent.config.rag_chunk_overlap,
+    )
+    try:
+        if path.is_dir():
+            chunks = asyncio.run(engine.ingest_directory(str(path)))
+        else:
+            chunks = asyncio.run(engine.ingest_file(str(path)))
+    except ImportError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        console.print(f"[error]Ingest failed: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"📚 Ingested [cyan]{path}[/cyan] → {chunks} chunks stored")
+
+
+@app.command("search")
+def rag_search(
+    query: str = typer.Argument(..., help="What to look for in the knowledge base"),
+    top_k: int = typer.Option(3, "--top-k", "-k", min=1, help="Number of results"),
+) -> None:
+    """Search the RAG knowledge base."""
+    from aegisx_agent.rag.engine import RAGEngine
+
+    agent = _get_agent()
+    engine = RAGEngine(
+        persist_dir=agent.config.vector_store_path,
+        chunk_size=agent.config.rag_chunk_size,
+        chunk_overlap=agent.config.rag_chunk_overlap,
+    )
+    try:
+        results = asyncio.run(engine.search(query, top_k=top_k))
+    except ImportError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        console.print(f"[error]Search failed: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+
+    if not results:
+        console.print("[dim]Knowledge base is empty. Ingest something first:[/dim]")
+        console.print("[dim]  aegisx ingest ./docs/[/dim]")
+        return
+
+    table = Table(title=f"🔍 {query}", border_style="cyan")
+    table.add_column("Score", style="bold", width=6)
+    table.add_column("Source", style="yellow", max_width=30)
+    table.add_column("Chunk", max_width=70)
+    for result in results:
+        table.add_row(
+            f"{result['score']:.2f}",
+            str(result["source"]),
+            result["content"].replace("\n", " ")[:200],
+        )
+    console.print(table)
+
+
+@app.command()
 def personas():
     """List available personas."""
     agent = _get_agent()
