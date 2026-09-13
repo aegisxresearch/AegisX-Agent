@@ -26,7 +26,7 @@ env/
 # Data
 *.db
 *.sqlite3
-.utopia/
+.aegisx/
 
 # OS
 .DS_Store

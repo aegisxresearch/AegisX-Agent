@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "utopia-agent"
+name = "aegisx-agent"
 version = "0.1.0"
-description = "Utopia Agent — Super-powered Agentic AI with full tool calling, RAG, planning, memory, and code generation"
+description = "AegisX Agent — Super-powered Agentic AI with full tool calling, RAG, planning, memory, and code generation"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "Utopia" }]
+authors = [{ name = "AegisX" }]
 
 dependencies = [
     "openai>=1.50.0",
@@ -38,7 +38,7 @@ dev = [
 ]
 
 [project.scripts]
-utopia = "utopia_agent.cli:app"
+aegisx = "aegisx_agent.cli:app"
 
 [tool.ruff]
 target-version = "py310"
@@ -51,5 +51,8 @@ select = ["E", "F", "I", "N", "W", "UP"]
 python_version = "3.10"
 strict = true
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/utopia_agent"]
+packages = ["src/aegisx_agent"]

@@ -1,4 +1,4 @@
-# 🤖 Utopia Agent
+# 🤖 AegisX Agent
 
 **Super-powered Agentic AI** — Support ANY LLM provider, with tool calling, RAG, memory, planning, and customizable personas.
 
@@ -13,6 +13,9 @@
 | 📋 **Planning** | Multi-step reasoning with ReAct pattern |
 | 🎭 **Personas** | Built-in personas + custom persona creation |
 | 🖥️ **Rich CLI** | Beautiful terminal interface with streaming |
+| 📁 **Workspace aware** | Knows the folder it runs in: stack, git state, `AGENTS.md` instructions |
+| 🔐 **Permission gate** | Every tool call is classified by risk and gated before it runs |
+| ⏰ **Scheduler** | Cron-style tasks that run unattended, with backoff and an audit log |
 
 ## 🚀 Quick Start
 
@@ -22,67 +25,107 @@
 pip install -e .
 ```
 
+### Run it in a project
+
+```bash
+cd my-project
+
+# Interactive chat — the agent reads this folder, its git state, and AGENTS.md
+aegisx
+
+# One-shot: run a task and exit (scriptable)
+aegisx run "add tests for the scheduler"
+echo "why is CI failing?" | aegisx run
+```
+
+No configuration is needed if an **Ollama** server is already running: AegisX
+finds it, picks an installed chat model, and starts. Otherwise set a provider
+explicitly (below).
+
 ### Set up your LLM provider
 
 ```bash
 # Option 1: OpenAI
-export UTOPIA_OPENAI_API_KEY="sk-..."
+export AEGISX_OPENAI_API_KEY="sk-..."
 
 # Option 2: Anthropic
-export UTOPIA_LLM_PROVIDER=anthropic
-export UTOPIA_ANTHROPIC_API_KEY="sk-ant-..."
+export AEGISX_LLM_PROVIDER=anthropic
+export AEGISX_ANTHROPIC_API_KEY="sk-ant-..."
 
 # Option 3: Ollama (local, free!)
-export UTOPIA_LLM_PROVIDER=ollama
-export UTOPIA_OLLAMA_MODEL=llama3.1
+export AEGISX_LLM_PROVIDER=ollama
+export AEGISX_OLLAMA_MODEL=llama3.1
 
 # Option 4: Groq (fast inference)
-export UTOPIA_LLM_PROVIDER=groq
-export UTOPIA_GROQ_API_KEY="gsk_..."
+export AEGISX_LLM_PROVIDER=groq
+export AEGISX_GROQ_API_KEY="gsk_..."
 
 # Option 5: ANY custom OpenAI-compatible endpoint
-export UTOPIA_LLM_PROVIDER=custom
-export UTOPIA_CUSTOM_BASE_URL="https://api.together.xyz/v1"
-export UTOPIA_CUSTOM_API_KEY="your-key"
-export UTOPIA_CUSTOM_MODEL="meta-llama/Llama-3-70b-chat-hf"
+export AEGISX_LLM_PROVIDER=custom
+export AEGISX_CUSTOM_BASE_URL="https://api.together.xyz/v1"
+export AEGISX_CUSTOM_API_KEY="your-key"
+export AEGISX_CUSTOM_MODEL="meta-llama/Llama-3-70b-chat-hf"
 ```
 
-### Chat!
+### What it sees when it starts
+
+```
+  📁 my-project (/home/you/code/my-project)
+  Python • git main, 3 changed • 412 files
+  📜 AGENTS.md loaded as instructions
+  🔌 ollama • 🧠 llama3.1 • 🔧 15 tools • 💡 2 skills • 🔐 ask • 🎭 default
+```
+
+The first turn already knows the working directory, the language, whether the
+tree is dirty, and any `AGENTS.md` / `CLAUDE.md` instructions — so it does not
+have to spend a tool call working that out. Turn it off with
+`AEGISX_PROJECT_CONTEXT_ENABLED=false`.
+
+### Chat options
 
 ```bash
-# Interactive chat (default)
-utopia
-
-# Use specific provider
-utopia --provider ollama --model llama3.1
-utopia -p openai -m gpt-4o
-
-# Use custom endpoint
-utopia -p custom --url https://api.together.xyz/v1 -k your-key -m meta-llama/Llama-3-70b-chat-hf
+aegisx --provider ollama --model llama3.1
+aegisx -p openai -m gpt-4o
+aegisx -p custom --url https://api.together.xyz/v1 -k your-key -m meta-llama/Llama-3-70b-chat-hf
 ```
 
 ## 📖 Commands
 
 ```bash
-utopia                    # Start interactive chat
-utopia chat               # Same as above
-utopia plan "goal"        # Plan and execute a multi-step goal
-utopia ingest ./docs/     # Ingest documents into knowledge base
-utopia search "query"     # Search the knowledge base
-utopia personas           # List available personas
-utopia tools              # List available tools
-utopia config             # Show current configuration
+aegisx                    # Start interactive chat in the current folder
+aegisx chat               # Same as above
+aegisx run "task"         # One-shot: do it, print the answer, exit
+aegisx run < task.md      # Task read from stdin (pipeline friendly)
+aegisx plan "goal"        # Plan and execute a multi-step goal
+aegisx ingest ./docs/     # Ingest documents into knowledge base
+aegisx search "query"     # Search the knowledge base
+aegisx personas           # List available personas
+aegisx tools              # List available tools and their risk level
+aegisx config-info        # Show current configuration
+
+# Safety
+aegisx chat --permission-mode read-only   # Only let read-only tools run
+aegisx chat --permission-mode allow-all   # Gate nothing (still audited)
+
+# Scheduled tasks (run automatically)
+aegisx schedule add nightly "summarise my inbox" --interval 1h
+aegisx schedule add report "write the weekly report" --daily 09:00
+aegisx schedule list      # Tasks, next run, last status
+aegisx schedule run       # Execute due tasks now, then keep checking until Ctrl+C
+aegisx schedule run --once  # Fire everything due and exit
+aegisx schedule logs <id> # Run history for one task
+aegisx schedule remove <id>
 ```
 
 ## 🔌 Supported Providers
 
 | Provider | Setup | Free? |
 |----------|-------|-------|
-| **OpenAI** | `UTOPIA_OPENAI_API_KEY` | ❌ (paid) |
-| **Anthropic** | `UTOPIA_ANTHROPIC_API_KEY` | ❌ (paid) |
+| **OpenAI** | `AEGISX_OPENAI_API_KEY` | ❌ (paid) |
+| **Anthropic** | `AEGISX_ANTHROPIC_API_KEY` | ❌ (paid) |
 | **Ollama** | Install ollama, pull a model | ✅ (local) |
-| **Groq** | `UTOPIA_GROQ_API_KEY` | ✅ (free tier) |
-| **Custom** | `UTOPIA_CUSTOM_BASE_URL` | Varies |
+| **Groq** | `AEGISX_GROQ_API_KEY` | ✅ (free tier) |
+| **Custom** | `AEGISX_CUSTOM_BASE_URL` | Varies |
 
 ### Custom Provider Examples
 
@@ -90,87 +133,152 @@ Works with ANY OpenAI-compatible API:
 
 ```bash
 # Together AI
-utopia -p custom -u https://api.together.xyz/v1 -k $TOGETHER_KEY -m meta-llama/Llama-3-70b-chat-hf
+aegisx -p custom -u https://api.together.xyz/v1 -k $TOGETHER_KEY -m meta-llama/Llama-3-70b-chat-hf
 
 # OpenRouter
-utopia -p custom -u https://openrouter.ai/api/v1 -k $OPENROUTER_KEY -m anthropic/claude-3.5-sonnet
+aegisx -p custom -u https://openrouter.ai/api/v1 -k $OPENROUTER_KEY -m anthropic/claude-3.5-sonnet
 
 # Local LM Studio
-utopia -p custom -u http://localhost:1234/v1 -m local-model
+aegisx -p custom -u http://localhost:1234/v1 -m local-model
 
 # vLLM
-utopia -p custom -u http://localhost:8000/v1 -m model-name
+aegisx -p custom -u http://localhost:8000/v1 -m model-name
 
 # Text Generation WebUI
-utopia -p custom -u http://localhost:5000/v1 -m model-name
+aegisx -p custom -u http://localhost:5000/v1 -m model-name
 ```
 
 ## 🎭 Personas
 
 ```bash
 # List personas
-utopia personas
+aegisx personas
 
 # Use a persona
-utopia --persona coder
-utopia --persona researcher
+aegisx --persona coder
+aegisx --persona researcher
 
 # Create custom persona
-# Save to ~/.utopia/personas/my_persona.txt
+# Save to ~/.aegisx/personas/my_persona.txt
 ```
 
 Built-in personas: `default`, `coder`, `researcher`, `analyst`, `creative`, `hacker`, `scientist`
 
 ## 🔧 Tools
 
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search the internet via DuckDuckGo |
-| `execute_code` | Run Python code safely |
-| `file_ops` | Read, write, list, search files |
-| `shell` | Execute shell commands (opt-in) |
-| `calculator` | Evaluate math expressions |
-| `datetime` | Date/time utilities |
-| `rag_search` | Search document knowledge base |
+| Tool | Risk | Description |
+|------|------|-------------|
+| `web_search` | safe | Search the internet via DuckDuckGo |
+| `execute_code` | dangerous | Run Python in this process (no sandbox) |
+| `file_ops` | varies | Read, write, list, search, delete files |
+| `shell` | dangerous | Execute shell commands (opt-in) |
+| `calculator` | safe | Evaluate math expressions |
+| `datetime` | safe | Date/time utilities |
+| `rag_search` | safe | Search document knowledge base |
+| `skill` | safe | List, search, and load reusable skills |
+| `api_call` | varies | Call any REST endpoint |
+| `db_query` | varies | Query SQLite / PostgreSQL |
+| `web_scrape` | safe | Scrape and extract page content |
+| `codebase` | safe | Explore project structure and code |
+| `code_edit` | caution | Edit files with diff preview |
+| `git` | varies | Git status / diff / commit / branch |
+| `run_tests` | varies | Auto-detect and run the test suite |
+
+## 🔐 Permissions
+
+Every tool call passes one gate before it touches the system. Tools declare the
+risk themselves, and it is evaluated **per call** — `file_ops read` is safe,
+`file_ops delete` is not.
+
+| Risk | Examples | What `ask` mode does |
+|------|----------|----------------------|
+| `safe` | read a file, search, calculate, `git status` | runs |
+| `caution` | write or edit a file, POST/PUT, run auto-detected tests | runs, and is audited |
+| `dangerous` | `execute_code`, `shell`, delete files, `git commit`, `DELETE` | asks first |
+
+| Mode | Behaviour |
+|------|-----------|
+| `ask` (default) | safe and caution calls run; dangerous calls ask |
+| `read-only` | only safe calls run |
+| `allow-all` | nothing is gated (every call is still audited) |
+
+```bash
+aegisx chat --permission-mode read-only
+AEGISX_PERMISSION_MODE=read-only aegisx chat
+AEGISX_ALLOWED_TOOLS=execute_code,run_tests aegisx schedule run   # explicit opt-in
+```
+
+In chat: `/permissions` (show policy and recent decisions),
+`/permissions mode read-only`, `/permissions allow execute_code`.
+
+**Unattended runs fail closed.** `aegisx schedule run` has nobody to answer a
+prompt, so in `ask` mode a dangerous tool is *denied* rather than approved
+silently. Opt in explicitly with `AEGISX_ALLOWED_TOOLS` or
+`--permission-mode allow-all`.
+
+Every decision is appended to `~/.aegisx/audit.log` as JSONL — tool, risk,
+verdict, who decided — with credential-shaped arguments redacted.
 
 ## 📚 RAG (Document Ingestion)
 
 ```bash
 # Ingest a file
-utopia ingest ./document.pdf
+aegisx ingest ./document.pdf
 
 # Ingest a directory
-utopia ingest ./docs/
+aegisx ingest ./docs/
 
 # Search knowledge base
-utopia search "what is the API rate limit?"
+aegisx search "what is the API rate limit?"
 ```
 
 Supported formats: `.txt`, `.md`, `.py`, `.js`, `.ts`, `.json`, `.yaml`, `.toml`, `.pdf`
 
+## 🧪 Tests
+
+```bash
+uv venv --python 3.11 .venv
+uv pip install -e ".[dev]"
+.venv/bin/python -m pytest
+```
+
+The suite covers the agentic loop (tool-call id matching, failure containment,
+parallel batches), the tool registry, the permission gate and its fail-closed
+paths, the audit log and its redaction, the scheduler, the skill library,
+provider wire-format conversion, and end-to-end runs against a fake
+OpenAI/Anthropic-compatible HTTP server.
+
 ## ⚙️ Configuration
 
-All settings can be configured via environment variables (prefix `UTOPIA_`):
+All settings can be configured via environment variables (prefix `AEGISX_`):
 
 ```env
 # .env file
-UTOPIA_LLM_PROVIDER=custom
-UTOPIA_CUSTOM_BASE_URL=https://api.together.xyz/v1
-UTOPIA_CUSTOM_API_KEY=your-key
-UTOPIA_CUSTOM_MODEL=meta-llama/Llama-3-70b-chat-hf
-UTOPIA_TEMPERATURE=0.7
-UTOPIA_MAX_ITERATIONS=15
-UTOPIA_MEMORY_ENABLED=true
-UTOPIA_RAG_ENABLED=true
-UTOPIA_SHELL_ENABLED=false
+AEGISX_LLM_PROVIDER=custom
+AEGISX_CUSTOM_BASE_URL=https://api.together.xyz/v1
+AEGISX_CUSTOM_API_KEY=your-key
+AEGISX_CUSTOM_MODEL=meta-llama/Llama-3-70b-chat-hf
+AEGISX_TEMPERATURE=0.7
+AEGISX_MAX_ITERATIONS=15
+AEGISX_MEMORY_ENABLED=true
+AEGISX_RAG_ENABLED=true
+AEGISX_SHELL_ENABLED=false
+AEGISX_PROJECT_CONTEXT_ENABLED=true    # cwd, stack, git, AGENTS.md in the prompt
+
+# Permissions
+AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
+AEGISX_ALLOWED_TOOLS=                # e.g. execute_code,run_tests
+AEGISX_DENIED_TOOLS=                 # e.g. shell
+AEGISX_AUDIT_LOG_ENABLED=true
 ```
 
 ## 🏗️ Architecture
 
 ```
-utopia_agent/
+aegisx_agent/
 ├── core.py              # Main agent orchestrator
 ├── config.py            # Configuration (pydantic-settings)
+├── security/            # Permission gate + audit log
 ├── cli.py               # Rich terminal CLI
 ├── llm/                 # Multi-provider LLM support
 │   ├── base.py          # Base abstractions
