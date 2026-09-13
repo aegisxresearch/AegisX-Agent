@@ -34,7 +34,7 @@ class ScheduledTask:
     name: str
     prompt: str                          # What to tell the agent to do
     schedule_type: ScheduleType
-    schedule_value: str                  # Cron expr, interval string, or time
+    schedule_value: str = ""              # Cron expr, interval string, or time
     enabled: bool = True
     status: TaskStatus = TaskStatus.PENDING
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -125,7 +125,7 @@ class ScheduledTask:
                     if days_ahead == 0:
                         next_dt = now.replace(hour=hour, minute=minute, second=0)
                         if next_dt <= now:
-                            days_ahead = 7
+                            next_dt += timedelta(days=7)
                     else:
                         next_dt = now.replace(
                             hour=hour, minute=minute, second=0

@@ -67,6 +67,7 @@ def test_parse_interval_units() -> None:
     assert ScheduledTask._parse_interval("1d") == 86400
     assert ScheduledTask._parse_interval("10") == 600
     assert ScheduledTask._parse_interval("nonsense") is None
+    assert ScheduledTask._parse_interval("xm") is None  # valid suffix, bad number
 
 
 def test_calculate_next_run_variants() -> None:
@@ -240,3 +241,125 @@ def test_remove_task_deletes_it_and_its_logs(tmp_path) -> None:
     assert scheduler.remove_task(task.id) is False
     assert scheduler.get_task(task.id) is None
     assert scheduler.get_logs(task.id) == []
+
+
+def test_toggle_accepts_an_unknown_id(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent())
+
+    assert scheduler.toggle_task("no-such-id") is False
+
+
+def test_toggle_flips_the_enabled_flag_when_no_value_is_given(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent())
+    task = scheduler.add_task("nightly", "do it", "interval", "30m")
+
+    assert task.enabled is True
+    assert scheduler.toggle_task(task.id) is True
+    assert scheduler.get_task(task.id).enabled is False
+    assert scheduler.toggle_task(task.id) is True
+    assert scheduler.get_task(task.id).enabled is True
+
+
+def test_a_corrupt_next_run_value_is_ignored_not_crashed(tmp_path) -> None:
+    """A hand-edited or buggy next_run must not break due-task selection."""
+    scheduler = _scheduler(tmp_path, FakeAgent())
+    task = scheduler.add_task("nightly", "do it", "interval", "30m")
+    stored = scheduler.get_task(task.id)
+    assert stored is not None
+    stored.next_run = "not-a-timestamp"
+
+    assert scheduler.get_due_tasks() == []
+
+
+def test_run_task_without_an_agent_factory_fails_the_run(tmp_path) -> None:
+    scheduler = Scheduler(data_dir=tmp_path)
+    task = scheduler.add_task("orphan", "do it", "interval", "30m")
+
+    result = run(scheduler.run_task(scheduler.get_task(task.id)))
+
+    assert result.startswith("Error: RuntimeError")
+    stored = scheduler.get_task(task.id)
+    assert stored is not None
+    assert stored.status is TaskStatus.FAILED
+    assert stored.error_count == 1
+    assert scheduler.get_logs(task.id)[0]["status"] == "failed"
+
+
+def test_background_loop_runs_due_tasks_and_stops(tmp_path) -> None:
+    agent = FakeAgent(reply="background work done")
+    scheduler = _scheduler(tmp_path, agent)
+    task = scheduler.add_task("nightly", "summarise", "interval", "30m")
+    _make_due(scheduler, task.id)
+
+    async def _drive() -> None:
+        loop_task = asyncio.create_task(
+            scheduler.start_background_loop(check_interval=0)
+        )
+        await asyncio.sleep(0.05)  # let the loop pick the task up and run it
+        scheduler.stop()
+        await asyncio.wait_for(loop_task, timeout=2)
+
+    run(_drive())
+
+    assert agent.prompts == ["summarise"]
+    stored = scheduler.get_task(task.id)
+    assert stored is not None
+    assert stored.run_count == 1
+
+
+def test_background_loop_survives_a_failing_task(tmp_path) -> None:
+    """An exception inside the loop body must not kill the daemon."""
+    agent = FakeAgent(error=RuntimeError("exploded"))
+    scheduler = _scheduler(tmp_path, agent)
+    task = scheduler.add_task("nightly", "do it", "interval", "30m")
+    _make_due(scheduler, task.id)
+
+    async def _drive() -> None:
+        loop_task = asyncio.create_task(
+            scheduler.start_background_loop(check_interval=0)
+        )
+        await asyncio.sleep(0.05)
+        scheduler.stop()
+        await asyncio.wait_for(loop_task, timeout=2)
+
+    run(_drive())  # must return instead of raising
+
+    stored = scheduler.get_task(task.id)
+    assert stored is not None
+    assert stored.status is TaskStatus.FAILED
+
+
+def test_background_loop_survives_due_selection_exploding(tmp_path, monkeypatch) -> None:
+    """Even an error in get_due_tasks itself must not kill the loop."""
+    scheduler = _scheduler(tmp_path, FakeAgent())
+    calls = {"n": 0}
+    original = scheduler.get_due_tasks
+
+    def _flaky() -> list[ScheduledTask]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("sqlite is having a day")
+        return original()
+
+    monkeypatch.setattr(scheduler, "get_due_tasks", _flaky)
+
+    async def _drive() -> None:
+        loop_task = asyncio.create_task(
+            scheduler.start_background_loop(check_interval=0)
+        )
+        await asyncio.sleep(0.05)
+        scheduler.stop()
+        await asyncio.wait_for(loop_task, timeout=2)
+
+    run(_drive())  # first poll raised, second succeeded, loop lived on
+
+    assert calls["n"] >= 2
+
+
+def test_stop_is_idempotent(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent())
+
+    scheduler.stop()
+    scheduler.stop()  # no raise
+
+    assert scheduler._running is False
