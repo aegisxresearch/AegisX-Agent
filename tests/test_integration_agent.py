@@ -6,6 +6,7 @@ so it covers the request/response plumbing that unit tests cannot reach.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -214,3 +215,93 @@ def test_anthropic_tool_round_trip(fake_llm: FakeLLMServer, tmp_path) -> None:
     assert tool_result["content"][0]["content"] == "6*7 = 42"
 
     assert second_request["system"]
+
+
+# --------------------------------------------------------------------------- #
+# plan_and_execute: end to end against the fake OpenAI-compatible server
+# --------------------------------------------------------------------------- #
+
+
+def test_plan_and_execute_runs_every_step_end_to_end(
+    fake_llm: FakeLLMServer, tmp_path
+) -> None:
+    """Regression: aegisx plan used to KeyError before reaching the LLM."""
+    planning_json = json.dumps(
+        {
+            "goal": "what is 2+2, then explain it",
+            "steps": [
+                {
+                    "thought": "compute it with the calculator",
+                    "action": "calculator",
+                    "action_input": {"expression": "2+2"},
+                },
+                {
+                    "thought": "explain the result in plain words",
+                    "action": None,
+                    "action_input": None,
+                },
+            ],
+        }
+    )
+    fake_llm.script(
+        openai_text_response(planning_json),  # 1: plan generation
+        openai_text_response("Two plus two makes four."),  # 2: reasoning step
+    )
+    agent = _openai_agent(fake_llm, tmp_path)
+
+    plan = run(agent.plan_and_execute("what is 2+2, then explain it"))
+
+    # Two LLM calls: plan generation and the reasoning step. The tool step
+    # runs straight through the registry with no LLM in the loop — the plan
+    # already names the action, unlike chat() where the LLM decides.
+    assert len(fake_llm.requests) == 2
+
+    # The planning request carried the goal and the real tool list.
+    _, planning_request = fake_llm.requests[0]
+    planning_message = planning_request["messages"][-1]["content"]
+    assert "what is 2+2, then explain it" in planning_message
+    assert "calculator" in planning_message
+
+    # The tool step actually executed through the registry.
+    assert plan.steps[0].status == "completed"
+    assert "4" in (plan.steps[0].observation or "")
+
+    # The reasoning step ran through the LLM.
+    assert plan.steps[1].status == "completed"
+    assert plan.steps[1].observation == "Two plus two makes four."
+
+    assert plan.status == "completed"
+    assert agent.current_plan is plan
+
+
+def test_plan_and_execute_marks_a_failed_tool_step_failed(
+    fake_llm: FakeLLMServer, tmp_path
+) -> None:
+    planning_json = json.dumps(
+        {
+            "goal": "g",
+            "steps": [
+                {
+                    "thought": "explode",
+                    "action": "calculator",
+                    "action_input": {"expression": "2+"},
+                },
+                {"thought": "carry on", "action": None},
+            ],
+        }
+    )
+    fake_llm.script(
+        openai_text_response(planning_json),
+        openai_text_response("recovery reply"),
+    )
+    agent = _openai_agent(fake_llm, tmp_path)
+
+    plan = run(agent.plan_and_execute("g"))
+
+    failed = plan.steps[0]
+    assert failed.status == "failed"
+    assert failed.observation  # the error made it into the observation
+    # The loop continues to the next step rather than aborting the plan.
+    assert plan.steps[1].status == "completed"
+    assert plan.steps[1].observation == "recovery reply"
+    assert plan.status == "completed"
