@@ -90,7 +90,8 @@ def test_ingest_a_file_stores_chunks(runner, agent, monkeypatch, tmp_path, fake_
     result = runner.invoke(cli.app, ["ingest", str(doc)])
 
     assert result.exit_code == 0, result.output
-    assert "chunks stored" in result.output
+    # Rich wraps long paths at the 80-col console; compare wrap-insensitively.
+    assert "chunks stored" in " ".join(result.output.split())
     assert len(collection.rows) >= 1
 
 
@@ -107,7 +108,7 @@ def test_ingest_a_directory_walks_supported_files(
     result = runner.invoke(cli.app, ["ingest", str(docs)])
 
     assert result.exit_code == 0, result.output
-    assert "chunks stored" in result.output
+    assert "chunks stored" in " ".join(result.output.split())
     assert len(collection.rows) >= 2
 
 
