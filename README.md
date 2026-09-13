@@ -208,8 +208,47 @@ AEGISX_PERMISSION_MODE=read-only aegisx chat
 AEGISX_ALLOWED_TOOLS=execute_code,run_tests aegisx schedule run   # explicit opt-in
 ```
 
-In chat: `/permissions` (show policy and recent decisions),
-`/permissions mode read-only`, `/permissions allow execute_code`.
+The flag works on `chat`, `plan`, and `schedule run`. In `ask` mode the
+approval prompt offers **always allow**, which adds the tool to a per-session
+allow-list without touching your saved config.
+
+### Managing permissions from chat
+
+```
+/permissions                                  # policy, gated tools, 5 recent audit decisions
+/permissions mode <allow-all|ask|read-only>   # switch mode (saved to config)
+/permissions allow <tool>                     # never prompt for this tool again
+/permissions deny <tool>                      # block it — even safe tools, even in allow-all
+/permissions reset <tool>                     # clear its allow/deny override
+```
+
+Example session (real output):
+
+```
+You: /permissions mode read-only
+✅ Permission mode: read-only
+
+You: /permissions deny execute_code
+✅ deny: execute_code
+
+You: /permissions
+         🔐 Tool Permissions          
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ Setting             ┃ Value        ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ Mode                │ read-only    │
+│ Runtime             │ interactive  │
+│ Allowed (no prompt) │ —            │
+│ Denied              │ execute_code │
+└─────────────────────┴──────────────┘
+Audit log: /tmp/aegisx-demo/audit.log
+Gated tools: execute_code (dangerous), code_edit (caution), run_tests (caution)
+Usage: /permissions | /permissions mode <mode> | /permissions allow|deny|reset <tool>
+```
+
+`/permissions allow no_such_tool` is rejected with the list of valid tool
+names, and the audit log path is printed with the policy so you can inspect
+decisions afterwards.
 
 **Unattended runs fail closed.** `aegisx schedule run` has nobody to answer a
 prompt, so in `ask` mode a dangerous tool is *denied* rather than approved
