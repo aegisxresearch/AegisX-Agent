@@ -1,0 +1,395 @@
+# 🤖 AegisX Agent
+
+**Agentic AI Super-power** — Mendukung provider LLM apa pun, dengan tool calling, RAG, memori, perencanaan, dan persona yang bisa dikustomisasi.
+
+> 🇬🇧 Versi resmi bahasa Inggris: [README.md](README.md)
+
+## ✨ Fitur
+
+| Fitur | Deskripsi |
+|-------|-----------|
+| 🔌 **LLM Multi-Provider** | OpenAI, Anthropic, Ollama (lokal), Groq, atau endpoint apa pun yang kompatibel OpenAI |
+| 🔧 **Tool Calling** | Pencarian web, eksekusi kode, operasi file, shell, kalkulator, tanggal-waktu |
+| 📚 **RAG** | Unggah dokumen, cari basis pengetahuan dengan ChromaDB |
+| 🧠 **Memori** | Riwayat percakapan + penyimpanan fakta jangka panjang |
+| 📋 **Perencanaan** | Penalaran multi-langkah dengan pola ReAct |
+| 🎭 **Persona** | Persona bawaan + pembuatan persona kustom |
+| 🖥️ **CLI Kaya** | Antarmuka terminal indah dengan streaming |
+| 📁 **Sadar Workspace** | Tahu folder tempatnya berjalan: stack, status git, instruksi `AGENTS.md` |
+| 🔐 **Gerbang Izin** | Setiap panggilan tool diklasifikasi berdasarkan risiko dan digate sebelum berjalan |
+| ⏰ **Penjadwal** | Tugas gaya-cron yang berjalan tanpa pengawasan, dengan backoff dan log audit |
+
+## 🚀 Mulai Cepat
+
+### Instalasi
+
+```bash
+pip install -e .
+```
+
+### Jalankan di sebuah proyek
+
+```bash
+cd proyek-saya
+
+# Chat interaktif — agen membaca folder ini, status git-nya, dan AGENTS.md
+aegisx
+
+# Sekali jalan: kerjakan tugas lalu keluar (bisa di-script)
+aegisx run "tambahkan test untuk scheduler"
+echo "kenapa CI gagal?" | aegisx run
+```
+
+Tidak perlu konfigurasi jika server **Ollama** sudah berjalan: AegisX
+menemukannya otomatis, memilih model chat yang terpasang, dan langsung mulai.
+Jika tidak, atur provider secara eksplisit (di bawah).
+
+### Atur provider LLM Anda
+
+```bash
+# Opsi 1: OpenAI
+export AEGISX_OPENAI_API_KEY="sk-..."
+
+# Opsi 2: Anthropic
+export AEGISX_LLM_PROVIDER=anthropic
+export AEGISX_ANTHROPIC_API_KEY="sk-ant-..."
+
+# Opsi 3: Ollama (lokal, gratis!)
+export AEGISX_LLM_PROVIDER=ollama
+export AEGISX_OLLAMA_MODEL=llama3.1
+
+# Opsi 4: Groq (inferensi cepat)
+export AEGISX_LLM_PROVIDER=groq
+export AEGISX_GROQ_API_KEY="gsk_..."
+
+# Opsi 5: Endpoint kustom apa pun yang kompatibel OpenAI
+export AEGISX_LLM_PROVIDER=custom
+export AEGISX_CUSTOM_BASE_URL="https://api.together.xyz/v1"
+export AEGISX_CUSTOM_API_KEY="kunci-anda"
+export AEGISX_CUSTOM_MODEL="meta-llama/Llama-3-70b-chat-hf"
+```
+
+### Yang dilihatnya saat mulai
+
+```
+  📁 proyek-saya (/home/anda/kode/proyek-saya)
+  Python • git main, 3 berubah • 412 file
+  📜 AGENTS.md dimuat sebagai instruksi
+  🔌 ollama • 🧠 llama3.1 • 🔧 15 tools • 💡 2 skills • 🔐 ask • 🎭 default
+```
+
+Giliran pertama sudah tahu direktori kerja, bahasanya, apakah tree-nya kotor,
+dan instruksi dari `AGENTS.md` / `CLAUDE.md` — jadi tidak perlu membuang satu
+panggilan tool untuk mencari tahu. Matikan dengan
+`AEGISX_PROJECT_CONTEXT_ENABLED=false`.
+
+### Opsi chat
+
+```bash
+aegisx --provider ollama --model llama3.1
+aegisx -p openai -m gpt-4o
+aegisx -p custom --url https://api.together.xyz/v1 -k kunci-anda -m meta-llama/Llama-3-70b-chat-hf
+```
+
+## 📖 Perintah
+
+```bash
+aegisx                    # Mulai chat interaktif di folder saat ini
+aegisx chat               # Sama seperti di atas
+aegisx run "tugas"        # Sekali jalan: kerjakan, cetak jawaban, keluar
+aegisx run < tugas.md     # Tugas dibaca dari stdin (ramah pipeline)
+aegisx plan "tujuan"      # Rencanakan dan eksekusi tujuan multi-langkah
+aegisx ingest ./docs/     # Unggah dokumen ke basis pengetahuan
+aegisx search "query"     # Cari basis pengetahuan
+aegisx personas           # Daftar persona yang tersedia
+aegisx tools              # Daftar tool beserta tingkat risikonya
+aegisx config-info        # Tampilkan konfigurasi saat ini
+
+# Keamanan
+aegisx chat --permission-mode read-only   # Hanya tool read-only yang boleh
+aegisx chat --permission-mode allow-all   # Tanpa gate (tetap diaudit)
+
+# Tugas terjadwal (berjalan otomatis)
+aegisx schedule add nightly "ringkas inbox saya" --interval 1h
+aegisx schedule add laporan "tulis laporan mingguan" --daily 09:00
+aegisx schedule list      # Tugas, jadwal berikutnya, status terakhir
+aegisx schedule run       # Eksekusi tugas yang jatuh tempo sekarang
+aegisx schedule run --once  # Tembakkan semua yang jatuh tempo lalu keluar
+aegisx schedule logs <id> # Riwayat eksekusi satu tugas
+aegisx schedule remove <id>
+```
+
+## 🔌 Provider yang Didukung
+
+| Provider | Cara setup | Gratis? |
+|----------|-----------|---------|
+| **OpenAI** | `AEGISX_OPENAI_API_KEY` | ❌ (berbayar) |
+| **Anthropic** | `AEGISX_ANTHROPIC_API_KEY` | ❌ (berbayar) |
+| **Ollama** | Install ollama, tarik model | ✅ (lokal) |
+| **Groq** | `AEGISX_GROQ_API_KEY` | ✅ (free tier) |
+| **Kustom** | `AEGISX_CUSTOM_BASE_URL` | Tergantung |
+
+### Contoh Provider Kustom
+
+Bekerja dengan API apa pun yang kompatibel OpenAI:
+
+```bash
+# Together AI
+aegisx -p custom -u https://api.together.xyz/v1 -k $TOGETHER_KEY -m meta-llama/Llama-3-70b-chat-hf
+
+# OpenRouter
+aegisx -p custom -u https://openrouter.ai/api/v1 -k $OPENROUTER_KEY -m anthropic/claude-3.5-sonnet
+
+# LM Studio lokal
+aegisx -p custom -u http://localhost:1234/v1 -m model-lokal
+
+# vLLM
+aegisx -p custom -u http://localhost:8000/v1 -m nama-model
+
+# Text Generation WebUI
+aegisx -p custom -u http://localhost:5000/v1 -m nama-model
+```
+
+## 🎭 Persona
+
+```bash
+# Daftar persona
+aegisx personas
+
+# Gunakan persona
+aegisx --persona coder
+aegisx --persona researcher
+
+# Buat persona kustom
+# Simpan ke ~/.aegisx/personas/persona_saya.txt
+```
+
+Persona bawaan: `default`, `coder`, `researcher`, `analyst`, `creative`, `hacker`, `scientist`
+
+## 🔧 Tool
+
+| Tool | Risiko | Deskripsi |
+|------|--------|-----------|
+| `web_search` | safe | Cari internet via DuckDuckGo |
+| `execute_code` | dangerous | Jalankan Python di proses ini (tanpa sandbox) |
+| `file_ops` | bervariasi | Baca, tulis, daftar, cari, hapus file |
+| `shell` | dangerous | Jalankan perintah shell (opt-in) |
+| `calculator` | safe | Evaluasi ekspresi matematika |
+| `datetime` | safe | Utilitas tanggal/waktu |
+| `rag_search` | safe | Cari basis pengetahuan dokumen |
+| `skill` | safe | Daftar, cari, dan muat skill yang bisa dipakai ulang |
+| `api_call` | bervariasi | Panggil endpoint REST apa pun |
+| `db_query` | bervariasi | Kueri SQLite / PostgreSQL |
+| `web_scrape` | safe | Scrape dan ekstrak konten halaman |
+| `codebase` | safe | Jelajahi struktur dan kode proyek |
+| `code_edit` | caution | Edit file dengan pratinjau diff |
+| `git` | bervariasi | Git status / diff / commit / branch |
+| `run_tests` | bervariasi | Deteksi otomatis dan jalankan test suite |
+
+## 🔐 Izin (Permissions)
+
+Setiap panggilan tool melewati satu gerbang sebelum menyentuh sistem. Tool
+mendeklarasikan risikonya sendiri, dan dievaluasi **per panggilan** —
+`file_ops read` aman, `file_ops delete` tidak.
+
+| Risiko | Contoh | Yang dilakukan mode `ask` |
+|--------|--------|---------------------------|
+| `safe` | baca file, cari, hitung, `git status` | langsung jalan |
+| `caution` | tulis/edit file, POST/PUT, jalankan test | jalan, dan diaudit |
+| `dangerous` | `execute_code`, `shell`, hapus file, `git commit`, `DELETE` | minta izin dulu |
+
+| Mode | Perilaku |
+|------|----------|
+| `ask` (bawaan) | panggilan safe dan caution jalan; dangerous minta izin |
+| `read-only` | hanya panggilan safe yang jalan |
+| `allow-all` | tidak ada yang digate (tetap semua diaudit) |
+
+```bash
+aegisx chat --permission-mode read-only
+AEGISX_PERMISSION_MODE=read-only aegisx chat
+AEGISX_ALLOWED_TOOLS=execute_code,run_tests aegisx schedule run   # izin eksplisit
+```
+
+Flag berlaku untuk `chat`, `plan`, dan `schedule run`. Di mode `ask`, prompt
+persetujuan menawarkan **always allow**, yang menambahkan tool ke allow-list
+per sesi tanpa menyentuh konfigurasi tersimpan.
+
+### Mengelola izin dari chat
+
+```
+/permissions                                  # kebijakan, tool yang digate, 5 keputusan audit terakhir
+/permissions mode <allow-all|ask|read-only>   # ganti mode (tersimpan ke config)
+/permissions allow <tool>                     # tidak pernah tanya untuk tool ini lagi
+/permissions deny <tool>                      # blokir — bahkan tool aman, bahkan di allow-all
+/permissions reset <tool>                     # hapus override allow/deny-nya
+```
+
+Sesi contoh (keluaran nyata):
+
+```
+You: /permissions mode read-only
+✅ Permission mode: read-only
+
+You: /permissions deny execute_code
+✅ deny: execute_code
+
+You: /permissions
+         🔐 Tool Permissions
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ Setting             ┃ Value        ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ Mode                │ read-only    │
+│ Runtime             │ interactive  │
+│ Allowed (no prompt) │ —            │
+│ Denied              │ execute_code │
+└─────────────────────┴──────────────┘
+Audit log: /tmp/aegisx-demo/audit.log
+Gated tools: execute_code (dangerous), code_edit (caution), run_tests (caution)
+Usage: /permissions | /permissions mode <mode> | /permissions allow|deny|reset <tool>
+```
+
+`/permissions allow tool_ngasal` ditolak dengan daftar nama tool yang valid,
+dan lokasi log audit dicetak bersama kebijakannya agar keputusan bisa diperiksa
+belakangan.
+
+**Eksekusi tanpa pengawasan gagal-tertutup.** `aegisx schedule run` tidak punya
+orang untuk menjawab prompt, jadi di mode `ask` tool berbahaya *ditolak*
+daripada disetujui diam-diam. Beri izin eksplisit lewat `AEGISX_ALLOWED_TOOLS`
+atau `--permission-mode allow-all`.
+
+Setiap keputusan ditambahkan ke `~/.aegisx/audit.log` sebagai JSONL — tool,
+risiko, putusan, siapa yang memutuskan — dengan argumen berbentuk kredensial
+disensor.
+
+## 📚 RAG (Ingesti Dokumen)
+
+```bash
+# Unggah satu file
+aegisx ingest ./dokumen.pdf
+
+# Unggah sebuah direktori
+aegisx ingest ./docs/
+
+# Cari basis pengetahuan
+aegisx search "apa itu rate limit API?"
+```
+
+Format didukung: `.txt`, `.md`, `.py`, `.js`, `.ts`, `.json`, `.yaml`, `.toml`, `.pdf`
+
+Memerlukan ChromaDB (`pip install chromadb`) — selain itu semua yang agen
+butuhkan sudah terpasang secara bawaan.
+
+## 🧪 Test
+
+```bash
+uv venv --python 3.11 .venv
+uv pip install -e ".[dev]"
+.venv/bin/python -m pytest --cov=aegisx_agent   # gerbang coverage dipaksa
+```
+
+Suite-nya mencakup loop agentic (pencocokan id panggilan tool, penahanan
+kegagalan, batch paralel), registri tool, gerbang izin beserta jalur
+fail-closed-nya, log audit dan redaksinya, scheduler, pustaka skill, konversi
+wire-format provider, dan ujung-ke-ujung terhadap server HTTP tiruan yang
+kompatibel OpenAI/Anthropic.
+
+## 🪝 Git hooks
+
+Hook keamanan (filter pesan commit, penjaga rahasia saat pre-push) berada di
+`.githooks/` dan diaktifkan per clone dengan:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+## ⚙️ Konfigurasi
+
+Semua pengaturan bisa dikonfigurasi lewat variabel lingkungan (awalan `AEGISX_`):
+
+```env
+# file .env
+AEGISX_LLM_PROVIDER=custom
+AEGISX_CUSTOM_BASE_URL=https://api.together.xyz/v1
+AEGISX_CUSTOM_API_KEY=kunci-anda
+AEGISX_CUSTOM_MODEL=meta-llama/Llama-3-70b-chat-hf
+AEGISX_TEMPERATURE=0.7
+AEGISX_MAX_ITERATIONS=15
+AEGISX_MEMORY_ENABLED=true
+AEGISX_RAG_ENABLED=true
+AEGISX_SHELL_ENABLED=false
+AEGISX_PROJECT_CONTEXT_ENABLED=true    # cwd, stack, git, AGENTS.md di prompt
+
+# Izin
+AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
+AEGISX_ALLOWED_TOOLS=                # mis. execute_code,run_tests
+AEGISX_DENIED_TOOLS=                 # mis. shell
+AEGISX_AUDIT_LOG_ENABLED=true
+```
+
+## 🏗️ Arsitektur
+
+```
+aegisx_agent/                 # paket flat di root repo (tanpa src/)
+├── core/                     # Runtime agen
+│   ├── agent.py              # Orkestrator AegisXAgent
+│   ├── loop.py               # Loop tool-use agentic (streaming + retry)
+│   └── config.py             # Konfigurasi (pydantic-settings)
+├── cli/                      # CLI terminal kaya
+│   ├── app.py                # Typer app + konsol Rich bersama (satu sumber)
+│   ├── main.py               # Perpipaan config + entry point typer
+│   ├── interactive.py        # Loop chat, progress animasi, dispatch slash
+│   ├── commands/             # Handler slash: permissions, code, schedule
+│   └── __init__.py           # Re-export untuk pemakaian programatik
+├── security/                 # Gerbang izin + log audit
+├── llm/                      # Dukungan LLM multi-provider
+│   ├── base.py               # Abstraksi dasar
+│   ├── factory.py            # Factory provider
+│   ├── openai_provider.py
+│   ├── anthropic_provider.py
+│   ├── ollama_provider.py
+│   ├── groq_provider.py
+│   └── custom_provider.py    # Endpoint apa pun yang kompatibel OpenAI
+├── tools/                    # Sistem tool
+│   ├── base.py               # Abstraksi tool
+│   ├── registry.py           # Registri tool
+│   ├── coding/               # Git, editor, test runner, pencarian kode
+│   ├── web_search.py
+│   ├── web_scraper.py
+│   ├── code_executor.py
+│   ├── file_ops.py
+│   ├── shell.py
+│   ├── calculator.py
+│   ├── db_query.py
+│   ├── api_caller.py
+│   ├── datetime_tool.py
+│   └── rag_search.py
+├── memory/                   # Sistem memori
+│   ├── store.py              # Memori percakapan + jangka panjang
+│   └── advanced.py           # Prompt memory, sesi, model pengguna
+├── rag/                      # Sistem RAG
+│   └── engine.py             # Vector store ChromaDB
+├── scheduler/                # Eksekusi terjadwal/otomatis
+│   ├── task.py               # Model tugas + kalkulasi jadwal
+│   └── engine.py             # Daemon penjadwal
+├── skills/                   # Penangkapan + manajemen skill
+├── planning/                 # Sistem perencanaan
+│   └── react.py              # Loop penalaran ReAct
+├── personas/                 # Sistem persona
+│   └── loader.py             # Loader persona kustom
+├── project.py                # Deteksi konteks proyek
+├── config.py                 # Re-export back-compat dari core.config
+└── agent_loop.py             # Re-export back-compat dari core.loop
+```
+
+## 📚 Dokumentasi
+
+- [Arsitektur CLI](docs/cli.md) — cara paket CLI dipecah dan aturannya
+- [Versi bahasa Inggris](README.md) — README resmi
+
+## 📜 Changelog
+
+Lihat [CHANGELOG.md](CHANGELOG.md) untuk perubahan penting dan perbaikan bug.
+
+## 📄 Lisensi
+
+MIT

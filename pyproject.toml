@@ -65,7 +65,7 @@ omit = [
 
 [tool.coverage.report]
 # Baseline measured when the gate was introduced; raise as coverage grows.
-fail_under = 65
+fail_under = 66
 show_missing = true
 
 [tool.hatch.build.targets.wheel]

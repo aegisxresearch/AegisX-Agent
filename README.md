@@ -281,7 +281,7 @@ is installed by default.
 ```bash
 uv venv --python 3.11 .venv
 uv pip install -e ".[dev]"
-.venv/bin/python -m pytest --cov=aegisx_agent   # coverage gate: fail_under 60
+.venv/bin/python -m pytest --cov=aegisx_agent   # enforced coverage gate
 ```
 
 The suite covers the agentic loop (tool-call id matching, failure containment,
@@ -332,7 +332,10 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 │   ├── loop.py               # Agentic tool-use loop (streaming + retry)
 │   └── config.py             # Configuration (pydantic-settings)
 ├── cli/                      # Rich terminal CLI
-│   ├── main.py               # Typer app: chat, plan, run, schedule, ...
+│   ├── app.py                # Shared Typer app + Rich console (single source)
+│   ├── main.py               # Config plumbing + typer entry points
+│   ├── interactive.py        # Chat loop, animated progress, slash dispatch
+│   ├── commands/             # Slash handlers: permissions, code, schedule
 │   └── __init__.py           # Re-exports for programmatic use
 ├── security/                 # Permission gate + audit log
 ├── llm/                      # Multi-provider LLM support
@@ -374,6 +377,11 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 ├── config.py                 # Back-compat re-export of core.config
 └── agent_loop.py             # Back-compat re-export of core.loop
 ```
+
+## 📚 Docs
+
+- [CLI architecture](docs/cli.md) — how the CLI package is split and its rules
+- [Dokumentasi bahasa Indonesia](README.id.md) — full Indonesian version of this README
 
 ## 📜 Changelog
 

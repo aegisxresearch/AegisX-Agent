@@ -1,31 +1,74 @@
 """Rich terminal CLI for AegisX.
 
-The Typer application lives in :mod:`aegisx_agent.cli.main`; this package
-re-exports the symbols other modules (and the test suite) reach for.
+Layout:
+    aegisx_agent.cli.app          — shared Typer app + console
+    aegisx_agent.cli.main         — config plumbing + typer entry points
+    aegisx_agent.cli.interactive  — chat loop, animated progress, slash dispatch
+    aegisx_agent.cli.commands.*   — slash-command handlers by concern
+
+This package re-exports the symbols other modules (and the test suite)
+reach for, so ``from aegisx_agent.cli import main as cli`` keeps working
+regardless of which internal module defines a name.
 """
 
-from aegisx_agent.cli.main import (
-    CONFIG_FILE,
-    _agent,
+from aegisx_agent.cli.app import app, console
+from aegisx_agent.cli.commands.code import (
+    _handle_code_command,
+    _handle_git_command,
+    _handle_test_command,
+)
+from aegisx_agent.cli.commands.permissions import (
+    _handle_permissions_command,
+    _print_tools_table,
+)
+from aegisx_agent.cli.commands.schedule import (
     _flags_to_schedule,
-    _get_agent,
-    _get_config,
-    _handle_slash_command,
-    _permission_prompt,
+    _handle_schedule_command,
+    _print_schedule_logs,
+    _print_schedule_results,
     _resolve_schedule,
     _split_flags,
-    app,
+)
+from aegisx_agent.cli.interactive import (
+    AnimatedProgress,
+    _handle_slash_command,
+    _show_command_menu,
+)
+
+# main must be imported last: it wires the entry points onto ``app`` and
+# defines the module-level state (``_agent``, ``CONFIG_FILE``) that tests patch.
+from aegisx_agent.cli.main import (  # noqa: E402
+    CONFIG_FILE,
+    _agent,
+    _get_agent,
+    _get_config,
+    _permission_prompt,
+)
+from aegisx_agent.cli.main import (
+    app as _app_object,
 )
 
 __all__ = [
+    "AnimatedProgress",
     "CONFIG_FILE",
     "_agent",
+    "_app_object",
     "_flags_to_schedule",
     "_get_agent",
     "_get_config",
+    "_handle_code_command",
+    "_handle_git_command",
+    "_handle_permissions_command",
+    "_handle_schedule_command",
     "_handle_slash_command",
+    "_handle_test_command",
     "_permission_prompt",
+    "_print_schedule_logs",
+    "_print_schedule_results",
+    "_print_tools_table",
     "_resolve_schedule",
+    "_show_command_menu",
     "_split_flags",
     "app",
+    "console",
 ]
