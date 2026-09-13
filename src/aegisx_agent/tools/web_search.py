@@ -12,7 +12,7 @@ from aegisx_agent.tools.base import Tool, ToolResult, ToolStatus
 class WebSearchTool(Tool):
     """Search the web using DuckDuckGo Instant Answers API + HTML scraping."""
 
-    def __init__(self) -> None:
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
         super().__init__(
             name="web_search",
             description=(
@@ -36,12 +36,14 @@ class WebSearchTool(Tool):
                 "required": ["query"],
             },
         )
+        # Injectable for tests: httpx.MockTransport keeps the suite offline.
+        self._transport = transport
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         query = kwargs.get("query", "")
         num_results = kwargs.get("num_results", 5)
 
-        if not query:
+        if not query.strip():
             return ToolResult(status=ToolStatus.ERROR, output="", error="Query is required")
 
         try:
@@ -70,7 +72,10 @@ class WebSearchTool(Tool):
 
     async def _search_ddg(self, query: str, num: int) -> list[dict[str, str]]:
         """Search via DuckDuckGo HTML."""
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        client_kwargs: dict[str, Any] = {"timeout": 15, "follow_redirects": True}
+        if self._transport is not None:
+            client_kwargs["transport"] = self._transport
+        async with httpx.AsyncClient(**client_kwargs) as client:
             resp = await client.get(
                 "https://html.duckduckgo.com/html/",
                 params={"q": query},
@@ -122,7 +127,10 @@ class WebSearchTool(Tool):
 
     async def _search_ddg_api(self, query: str) -> list[dict[str, str]]:
         """Fallback: DuckDuckGo Instant Answers API."""
-        async with httpx.AsyncClient(timeout=10) as client:
+        client_kwargs: dict[str, Any] = {"timeout": 10}
+        if self._transport is not None:
+            client_kwargs["transport"] = self._transport
+        async with httpx.AsyncClient(**client_kwargs) as client:
             resp = await client.get(
                 "https://api.duckduckgo.com/",
                 params={"q": query, "format": "json", "no_redirect": "1"},

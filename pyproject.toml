@@ -33,6 +33,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=7.0.0",
     "ruff>=0.6.0",
     "mypy>=1.10.0",
 ]
@@ -53,6 +54,14 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["aegisx_agent"]
+
+[tool.coverage.report]
+# Baseline measured when the gate was introduced; raise as coverage grows.
+fail_under = 60
+show_missing = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aegisx_agent"]

@@ -13,7 +13,7 @@ from aegisx_agent.tools.base import Tool, ToolResult, ToolStatus
 class WebScraperTool(Tool):
     """Fetch and extract content from web pages."""
 
-    def __init__(self) -> None:
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
         super().__init__(
             name="web_scrape",
             description=(
@@ -48,6 +48,8 @@ class WebScraperTool(Tool):
                 "required": ["url"],
             },
         )
+        # Injectable for tests: httpx.MockTransport keeps the suite offline.
+        self._transport = transport
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         url = kwargs.get("url", "")
@@ -62,9 +64,10 @@ class WebScraperTool(Tool):
             url = "https://" + url
 
         try:
-            async with httpx.AsyncClient(
-                timeout=30, follow_redirects=True
-            ) as client:
+            client_kwargs: dict[str, Any] = {"timeout": 30, "follow_redirects": True}
+            if self._transport is not None:
+                client_kwargs["transport"] = self._transport
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(
                     url,
                     headers={

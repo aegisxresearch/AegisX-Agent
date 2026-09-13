@@ -242,7 +242,7 @@ is installed by default.
 ```bash
 uv venv --python 3.11 .venv
 uv pip install -e ".[dev]"
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest --cov=aegisx_agent   # coverage gate: fail_under 60
 ```
 
 The suite covers the agentic loop (tool-call id matching, failure containment,
@@ -250,6 +250,15 @@ parallel batches), the tool registry, the permission gate and its fail-closed
 paths, the audit log and its redaction, the scheduler, the skill library,
 provider wire-format conversion, and end-to-end runs against a fake
 OpenAI/Anthropic-compatible HTTP server.
+
+## 🪝 Git hooks
+
+Security hooks (commit-message filters, pre-push secret guard) are versioned
+in `.githooks/` and activated per clone with:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 ## ⚙️ Configuration
 

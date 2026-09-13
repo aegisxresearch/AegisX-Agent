@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Pre-push secret guard: block pushes that introduce credential-shaped text.
+# Patterns are the same class as gitleaks' default ruleset (GitHub PAT, AWS
+# key id, PEM private key blocks, vendor bearer tokens).
+
+set -u
+LEAKS=0
+
+check_pattern() {
+  local pattern="$1"
+  local desc="$2"
+  local matches
+
+  # Prefer the incoming diff; on the first push from a fresh clone (no
+  # origin/main yet) scan the entire committed tree instead of nothing.
+  if git rev-parse --verify --quiet origin/main >/dev/null; then
+    matches=$(git diff origin/main..HEAD 2>/dev/null | grep -E "^\+" | grep -E -- "$pattern" || true)
+  else
+    matches=$(git grep -E -e "$pattern" HEAD 2>/dev/null || true)
+  fi
+
+  if [ -n "$matches" ]; then
+    echo -e "\033[0;31m[CRITICAL LEAK DETECTED] $desc\033[0m"
+    LEAKS=$((LEAKS + 1))
+  fi
+}
+
+check_pattern "(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})" "GitHub Personal Access Token"
+check_pattern "(AKIA[0-9A-Z]{16})" "AWS Access Key ID"
+check_pattern "-----BEGIN (RSA|EC|OPENSSH|DSA) PRIVATE KEY-----" "Private Key / PEM Certificate"
+check_pattern "manicode-[a-zA-Z0-9]{32,}" "Freebuff / Manicode Auth Bearer Token"
+
+if [ "$LEAKS" -gt 0 ]; then
+  echo -e "\033[0;31m\033[1m❌ Push blocked: potential secret leak detected!\033[0m"
+  exit 1
+fi
+exit 0
