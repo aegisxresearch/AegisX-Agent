@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Flat, modular package layout.** `aegisx_agent/` now lives at the repo root
+  (no `src/` nesting) and the two monolith files are split by concern:
+  `cli.py` (1,472 lines) became a `cli/` package and `core.py` (709 lines)
+  became `core/` (`agent.py`, `loop.py`, `config.py`). Every submodule keeps a
+  focused single responsibility; `config.py` and `agent_loop.py` remain as
+  back-compat re-export shims, so existing imports keep working.
 - **One LLM request per streamed turn.** `chat_stream` no longer runs a
   non-streaming probe before streaming: tool calls are parsed from the stream
   itself. A tool-less turn drops from 2 requests to 1; a tool turn from 3 to 2.

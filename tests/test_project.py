@@ -274,7 +274,7 @@ def test_the_cli_switches_to_a_local_model_without_asking(
     fake_server: FakeLLMServer, monkeypatch, tmp_path
 ) -> None:
     """First run with no configuration should not show a wizard if Ollama is up."""
-    from aegisx_agent import cli
+    from aegisx_agent.cli import main as cli
     from aegisx_agent.config import LLMProvider
     from aegisx_agent.llm import autodetect
 
@@ -298,7 +298,7 @@ def test_the_cli_switches_to_a_local_model_without_asking(
 
 
 def test_a_configured_provider_is_left_alone(monkeypatch, tmp_path) -> None:
-    from aegisx_agent import cli
+    from aegisx_agent.cli import main as cli
     from aegisx_agent.config import LLMProvider
     from aegisx_agent.llm import autodetect
 

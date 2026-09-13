@@ -57,6 +57,11 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["aegisx_agent"]
+omit = [
+    # Back-compat shims: re-export modules at their historical import paths.
+    "aegisx_agent/config.py",
+    "aegisx_agent/agent_loop.py",
+]
 
 [tool.coverage.report]
 # Baseline measured when the gate was introduced; raise as coverage grows.
@@ -64,4 +69,4 @@ fail_under = 63
 show_missing = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aegisx_agent"]
+packages = ["aegisx_agent"]

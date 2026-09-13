@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from support import EchoTool, ScriptedLLM, run
 
-from aegisx_agent.agent_loop import AgenticLoop, AgentTrace
+from aegisx_agent.core.loop import AgenticLoop, AgentTrace
 from aegisx_agent.llm.base import LLMResponse, Message, Role, ToolCall
 from aegisx_agent.tools.registry import ToolRegistry
 

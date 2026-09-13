@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from aegisx_agent import cli
+from aegisx_agent.cli import main as cli
 from aegisx_agent.core import AegisXAgent
 from aegisx_agent.project import ProjectContext
 
@@ -24,7 +24,7 @@ def runner(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "CONFIG_FILE", tmp_path / "config.json")
     monkeypatch.setattr(cli, "_agent", None)
     monkeypatch.setattr(
-        "aegisx_agent.core.detect_project",
+        "aegisx_agent.core.agent.detect_project",
         lambda *args, **kwargs: ProjectContext(
             root=tmp_path,
             stacks=["Python"],

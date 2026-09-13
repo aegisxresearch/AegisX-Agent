@@ -7,8 +7,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from aegisx_agent.agent_loop import AgenticLoop, AgentTrace
-from aegisx_agent.config import AgentConfig, missing_credentials
+from aegisx_agent.core.config import AgentConfig, missing_credentials
+from aegisx_agent.core.loop import AgenticLoop, AgentTrace
 from aegisx_agent.llm.base import LLMProvider, Message, Role
 from aegisx_agent.llm.factory import create_llm_provider
 from aegisx_agent.memory.advanced import PromptMemory, SessionStore, UserModel
@@ -540,7 +540,7 @@ class AegisXAgent:
 
     def set_provider(self, provider: str) -> None:
         """Switch the LLM provider and rebuild the LLM client."""
-        from aegisx_agent.config import LLMProvider
+        from aegisx_agent.core.config import LLMProvider
 
         self.config.llm_provider = LLMProvider(provider)
         self._rebuild_llm()

@@ -6,9 +6,9 @@ from typing import Any
 
 from support import ScriptedLLM, run
 
-from aegisx_agent.agent_loop import AgentTrace
 from aegisx_agent.config import AgentConfig, LLMProvider
 from aegisx_agent.core import AegisXAgent
+from aegisx_agent.core.loop import AgentTrace
 from aegisx_agent.llm.base import LLMResponse, Message
 
 

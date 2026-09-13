@@ -78,7 +78,7 @@ def _announce_local_provider(base_url: str, model: str) -> None:
 
 
 def _get_config(provider=None, model=None, api_key=None, custom_url=None):
-    from aegisx_agent.config import AgentConfig, LLMProvider, missing_credentials
+    from aegisx_agent.core.config import AgentConfig, LLMProvider, missing_credentials
     config = AgentConfig()
 
     # Load saved config first
@@ -174,8 +174,8 @@ def _apply_permission_mode(config, mode: str | None) -> None:
 def _get_agent(config=None):
     global _agent
     if _agent is None:
-        from aegisx_agent.config import AgentConfig
         from aegisx_agent.core import AegisXAgent
+        from aegisx_agent.core.config import AgentConfig
 
         if config is None:
             config = AgentConfig()
@@ -200,7 +200,7 @@ def _get_agent(config=None):
 
 def _run_setup_wizard(config):
     """Interactive setup wizard for first-time users."""
-    from aegisx_agent.config import LLMProvider
+    from aegisx_agent.core.config import LLMProvider
 
     console.print("[bold]Choose your AI provider:[/bold]")
     console.print("  [cyan]1[/cyan] OpenRouter (recommended — access all models)")
@@ -1431,7 +1431,7 @@ def personas():
 @app.command()
 def config_info():
     """Show current configuration."""
-    from aegisx_agent.config import AgentConfig
+    from aegisx_agent.core.config import AgentConfig
     config = AgentConfig()
     llm_config = config.get_llm_config()
     table = Table(title="⚙️ Configuration", border_style="cyan")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from aegisx_agent.config import DEFAULT_PERSONAS
+from aegisx_agent.core.config import DEFAULT_PERSONAS
 
 
 class PersonaLoader:

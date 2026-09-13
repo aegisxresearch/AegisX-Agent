@@ -326,37 +326,53 @@ AEGISX_AUDIT_LOG_ENABLED=true
 ## 🏗️ Architecture
 
 ```
-aegisx_agent/
-├── core.py              # Main agent orchestrator
-├── config.py            # Configuration (pydantic-settings)
-├── security/            # Permission gate + audit log
-├── cli.py               # Rich terminal CLI
-├── llm/                 # Multi-provider LLM support
-│   ├── base.py          # Base abstractions
-│   ├── factory.py       # Provider factory
+aegisx_agent/                 # flat package at the repo root (no src/)
+├── core/                     # Agent runtime
+│   ├── agent.py              # AegisXAgent orchestrator
+│   ├── loop.py               # Agentic tool-use loop (streaming + retry)
+│   └── config.py             # Configuration (pydantic-settings)
+├── cli/                      # Rich terminal CLI
+│   ├── main.py               # Typer app: chat, plan, run, schedule, ...
+│   └── __init__.py           # Re-exports for programmatic use
+├── security/                 # Permission gate + audit log
+├── llm/                      # Multi-provider LLM support
+│   ├── base.py               # Base abstractions
+│   ├── factory.py            # Provider factory
 │   ├── openai_provider.py
 │   ├── anthropic_provider.py
 │   ├── ollama_provider.py
 │   ├── groq_provider.py
-│   └── custom_provider.py  # ANY OpenAI-compatible endpoint
-├── tools/               # Tool system
-│   ├── base.py          # Tool abstractions
-│   ├── registry.py      # Tool registry
+│   └── custom_provider.py    # ANY OpenAI-compatible endpoint
+├── tools/                    # Tool system
+│   ├── base.py               # Tool abstractions
+│   ├── registry.py           # Tool registry
+│   ├── coding/               # Git, editor, test runner, codebase search
 │   ├── web_search.py
+│   ├── web_scraper.py
 │   ├── code_executor.py
 │   ├── file_ops.py
 │   ├── shell.py
 │   ├── calculator.py
+│   ├── db_query.py
+│   ├── api_caller.py
 │   ├── datetime_tool.py
 │   └── rag_search.py
-├── memory/              # Memory system
-│   └── store.py         # Conversation + long-term memory
-├── rag/                 # RAG system
-│   └── engine.py        # ChromaDB vector store
-├── planning/            # Planning system
-│   └── react.py         # ReAct reasoning loop
-└── personas/            # Persona system
-    └── loader.py        # Custom persona loader
+├── memory/                   # Memory system
+│   ├── store.py              # Conversation + long-term memory
+│   └── advanced.py           # Prompt memory, sessions, user model
+├── rag/                      # RAG system
+│   └── engine.py             # ChromaDB vector store
+├── scheduler/                # Scheduled/automated runs
+│   ├── task.py               # Task model + schedule calculation
+│   └── engine.py             # Scheduler daemon
+├── skills/                   # Skill capture + management
+├── planning/                 # Planning system
+│   └── react.py              # ReAct reasoning loop
+├── personas/                 # Persona system
+│   └── loader.py             # Custom persona loader
+├── project.py                # Project context detection
+├── config.py                 # Back-compat re-export of core.config
+└── agent_loop.py             # Back-compat re-export of core.loop
 ```
 
 ## 📜 Changelog

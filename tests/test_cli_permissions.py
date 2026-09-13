@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from aegisx_agent import cli
+from aegisx_agent.cli import main as cli
 from aegisx_agent.config import AgentConfig, LLMProvider
 from aegisx_agent.core import AegisXAgent
 from aegisx_agent.security.permissions import PermissionMode
