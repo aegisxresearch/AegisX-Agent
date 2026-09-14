@@ -29,6 +29,13 @@ from aegisx_agent.cli.commands.mcp import (  # noqa: F401 — re-exported for te
     _parse_add_arguments,
     _print_servers_table,
 )
+from aegisx_agent.cli.commands.observability import (  # noqa: F401 — re-exported for tests
+    _handle_audit_command,
+    _handle_usage_command,
+    _print_audit_table,
+    _print_usage_summary,
+    _usage_to_json,
+)
 from aegisx_agent.cli.commands.permissions import (  # noqa: F401 — re-exported
     _handle_permissions_command,
     _print_tools_table,
@@ -649,6 +656,36 @@ def mcp_remove(
 
 
 app.add_typer(mcp_app, name="mcp")
+
+
+# ═══════════════════════════════════════════════════
+#  OBSERVABILITY TYPER COMMANDS (aegisx usage / aegisx audit)
+# ═══════════════════════════════════════════════════
+
+
+@app.command("usage")
+def usage_command(
+    period: str = typer.Argument("7d", help="today, yesterday, <N>d or <N>h"),
+    run_id: str | None = typer.Option(None, "--run", help="Only one run id"),
+    model: str | None = typer.Option(None, "--model", help="Only one model"),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
+) -> None:
+    """Show token usage recorded by the agent (from usage.jsonl)."""
+    agent = _get_agent(_get_config())
+    summary = _print_usage_summary(agent, period, run_id, model)
+    if as_json:
+        console.print_json(_usage_to_json(summary))
+
+
+@app.command("audit")
+def audit_command(
+    limit: int = typer.Argument(20, help="How many recent decisions to show"),
+    denied_only: bool = typer.Option(False, "--denied", help="Only refusals"),
+    tool: str | None = typer.Option(None, "--tool", help="Only one tool name"),
+) -> None:
+    """Show the tool-decision audit trail (permission gate log)."""
+    agent = _get_agent(_get_config())
+    _print_audit_table(agent, limit=max(1, min(limit, 200)), denied_only=denied_only, tool=tool)
 
 
 # ═══════════════════════════════════════════════════

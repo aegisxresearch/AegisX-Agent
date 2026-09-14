@@ -22,6 +22,13 @@ from aegisx_agent.cli.commands.mcp import (
     _handle_mcp_command,
     _print_servers_table,
 )
+from aegisx_agent.cli.commands.observability import (
+    _handle_audit_command,
+    _handle_usage_command,
+    _print_audit_table,
+    _print_usage_summary,
+    _usage_to_json,
+)
 from aegisx_agent.cli.commands.permissions import (
     _handle_permissions_command,
     _print_tools_table,
@@ -65,6 +72,7 @@ __all__ = [
     "_flags_to_schedule",
     "_get_agent",
     "_get_config",
+    "_handle_audit_command",
     "_handle_code_command",
     "_handle_git_command",
     "_handle_mcp_command",
@@ -73,16 +81,20 @@ __all__ = [
     "_handle_schedule_command",
     "_handle_slash_command",
     "_handle_test_command",
+    "_handle_usage_command",
     "_permission_prompt",
     "MCP_USAGE",
+    "_print_audit_table",
     "_print_plugins_table",
     "_print_servers_table",
     "_print_schedule_logs",
     "_print_schedule_results",
     "_print_tools_table",
+    "_print_usage_summary",
     "_resolve_schedule",
     "_show_command_menu",
     "_split_flags",
+    "_usage_to_json",
     "app",
     "console",
 ]

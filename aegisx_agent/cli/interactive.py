@@ -21,6 +21,10 @@ from aegisx_agent.cli.commands.code import (
     _handle_test_command,
 )
 from aegisx_agent.cli.commands.mcp import _handle_mcp_command
+from aegisx_agent.cli.commands.observability import (
+    _handle_audit_command,
+    _handle_usage_command,
+)
 from aegisx_agent.cli.commands.permissions import (
     _handle_permissions_command,
     _print_tools_table,
@@ -103,6 +107,8 @@ COMMANDS = {
     "/schedule":  {"desc": "Manage & run scheduled tasks", "icon": "⏰"},
     "/plugin":    {"desc": "List/load/unload tool plugins", "icon": "🧩"},
     "/mcp":       {"desc": "Manage MCP servers and their tools", "icon": "🌐"},
+    "/usage":     {"desc": "Token usage summary", "icon": "📈"},
+    "/audit":     {"desc": "Tool decision audit trail", "icon": "🛡️"},
     "/permissions": {"desc": "Show/change tool permissions", "icon": "🔐"},
     "/sessions":  {"desc": "Session stats & search", "icon": "📊"},
     "/learn":     {"desc": "Teach agent a preference", "icon": "🎓"},
@@ -239,6 +245,14 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
 
         case "/mcp":
             _handle_mcp_command(args, agent)
+            return True
+
+        case "/usage":
+            _handle_usage_command(args, agent)
+            return True
+
+        case "/audit":
+            _handle_audit_command(args, agent)
             return True
 
         case "/permissions":

@@ -17,6 +17,7 @@ from aegisx_agent.llm.factory import create_llm_provider
 from aegisx_agent.mcp import MCPManager, load_mcp_config
 from aegisx_agent.memory.advanced import PromptMemory, SessionStore, UserModel
 from aegisx_agent.memory.store import ConversationMemory, LongTermMemory
+from aegisx_agent.observability.usage import USAGE_FILE, UsageTracker
 from aegisx_agent.personas.loader import PersonaLoader
 from aegisx_agent.planning.react import ExecutionPlan, PlanBuilder
 from aegisx_agent.plugins import PluginDefinition, PluginRegistry
@@ -114,6 +115,13 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         # Session ID for this run
         import uuid
         self.session_id = str(uuid.uuid4())[:8]
+
+        # Usage tracking wraps the provider so every path (chat, streaming,
+        # plan execution, scheduled runs) records tokens under one run id.
+        self.usage = UsageTracker(self.llm, self.config.data_path / USAGE_FILE)
+        self.usage.run_id = self.session_id
+        self.llm = self.usage  # type: ignore[assignment]
+        self.agent_loop.llm = self.llm
 
         # Scheduler (cron-like automations).
         # Scheduled runs are unattended: the factory builds an agent that cannot
@@ -587,7 +595,11 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
     def _rebuild_llm(self) -> None:
         """Recreate the LLM client so config changes take effect immediately."""
-        self.llm = create_llm_provider(self.config.get_llm_config())
+        inner = create_llm_provider(self.config.get_llm_config())
+        # Re-wrap so usage tracking survives provider/model switches.
+        self.usage = UsageTracker(inner, self.config.data_path / USAGE_FILE)
+        self.usage.run_id = self.session_id
+        self.llm = self.usage  # type: ignore[assignment]
         self.agent_loop.llm = self.llm
 
     # === Public API for permissions ===
