@@ -208,14 +208,21 @@ def test_cron_every_n_minutes() -> None:
         _task(ScheduleType.CRON, "*/20 * * * *").calculate_next_run()
     )
 
-    assert timedelta(minutes=19) < nxt - now < timedelta(minutes=21)
+    # Real cron semantics: fire on :00/:20/:40 boundaries, so the wait is at
+    # most 20 minutes and lands exactly on a multiple of 20.
+    delta = nxt - now
+    assert timedelta(0) < delta <= timedelta(minutes=20)
+    assert nxt.minute % 20 == 0 and nxt.second == 0
 
 
 def test_cron_every_n_hours() -> None:
     now = datetime.now()
     nxt = datetime.fromisoformat(_task(ScheduleType.CRON, "0 */3 * * *").calculate_next_run())
 
-    assert timedelta(hours=2, minutes=59) < nxt - now < timedelta(hours=3, minutes=1)
+    # Fires on the next 0/3/6/9/12/15/18/21 o'clock boundary.
+    delta = nxt - now
+    assert timedelta(0) < delta <= timedelta(hours=3)
+    assert nxt.hour % 3 == 0 and nxt.minute == 0
 
 
 def test_cron_specific_time_rolls_past_midnight() -> None:
@@ -246,9 +253,12 @@ def test_cron_too_few_fields_is_empty() -> None:
     assert _task(ScheduleType.CRON, "* * *").calculate_next_run() == ""
 
 
-def test_cron_star_minute_star_hour_falls_through_to_empty() -> None:
-    """'*' is neither */N nor a digit, so the parser has no answer."""
-    assert _task(ScheduleType.CRON, "* * * * *").calculate_next_run() == ""
+def test_cron_star_matches_every_minute() -> None:
+    """'* * * * *' fires on the next minute boundary (real cron semantics)."""
+    now = datetime.now()
+    nxt = datetime.fromisoformat(_task(ScheduleType.CRON, "* * * * *").calculate_next_run())
+
+    assert timedelta(0) < nxt - now <= timedelta(minutes=1)
 
 
 def test_cron_bad_interval_value_falls_through() -> None:

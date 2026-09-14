@@ -13,7 +13,18 @@ from aegisx_agent.cli.app import console
 if TYPE_CHECKING:
     from aegisx_agent.core import AegisXAgent
 
-SCHEDULE_FLAGS = ("--interval", "--daily", "--weekly", "--cron", "--persona", "--timeout")
+SCHEDULE_FLAGS = (
+    "--interval",
+    "--every",
+    "--daily",
+    "--weekly",
+    "--cron",
+    "--persona",
+    "--timeout",
+)
+
+# ``--every`` is accepted as a friendlier alias for ``--interval``.
+_FLAG_ALIASES = {"--every": "--interval"}
 
 SCHEDULE_USAGE = (
     "[dim]Usage:[/dim]\n"
@@ -45,7 +56,7 @@ def _split_flags(text: str) -> tuple[str, dict[str, str]]:
         if token in SCHEDULE_FLAGS:
             if index + 1 >= len(tokens):
                 raise ValueError(f"{token} requires a value")
-            flags[token] = tokens[index + 1]
+            flags[_FLAG_ALIASES.get(token, token)] = tokens[index + 1]
             index += 2
             continue
         body.append(token)

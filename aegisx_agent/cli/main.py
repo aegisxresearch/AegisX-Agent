@@ -22,6 +22,12 @@ from aegisx_agent.cli.commands.code import (  # noqa: F401 — re-exported for t
     _handle_git_command,
     _handle_test_command,
 )
+from aegisx_agent.cli.commands.daemon import (  # noqa: F401 — re-exported for tests
+    DAEMON_USAGE,
+    _handle_daemon_command,
+    _print_daemon_status,
+    _run_daemon_foreground,
+)
 from aegisx_agent.cli.commands.mcp import (  # noqa: F401 — re-exported for tests
     MCP_USAGE,
     _handle_mcp_command,
@@ -656,6 +662,15 @@ def mcp_remove(
 
 
 app.add_typer(mcp_app, name="mcp")
+
+
+# ═══════════════════════════════════════════════════
+#  DAEMON TYPER COMMANDS (aegisx daemon run|status)
+# ═══════════════════════════════════════════════════
+
+from aegisx_agent.cli.commands.daemon import register as _register_daemon_app  # noqa: E402
+
+_register_daemon_app(app)
 
 
 # ═══════════════════════════════════════════════════

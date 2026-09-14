@@ -17,6 +17,12 @@ from aegisx_agent.cli.commands.code import (
     _handle_git_command,
     _handle_test_command,
 )
+from aegisx_agent.cli.commands.daemon import (
+    DAEMON_USAGE,
+    _handle_daemon_command,
+    _print_daemon_status,
+    _run_daemon_foreground,  # noqa: F401 — re-exported for tests
+)
 from aegisx_agent.cli.commands.mcp import (
     MCP_USAGE,
     _handle_mcp_command,
@@ -67,6 +73,7 @@ from aegisx_agent.cli.main import (
 __all__ = [
     "AnimatedProgress",
     "CONFIG_FILE",
+    "DAEMON_USAGE",
     "_agent",
     "_app_object",
     "_flags_to_schedule",
@@ -74,6 +81,7 @@ __all__ = [
     "_get_config",
     "_handle_audit_command",
     "_handle_code_command",
+    "_handle_daemon_command",
     "_handle_git_command",
     "_handle_mcp_command",
     "_handle_permissions_command",
@@ -85,6 +93,7 @@ __all__ = [
     "_permission_prompt",
     "MCP_USAGE",
     "_print_audit_table",
+    "_print_daemon_status",
     "_print_plugins_table",
     "_print_servers_table",
     "_print_schedule_logs",

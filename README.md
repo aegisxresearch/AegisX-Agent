@@ -16,6 +16,7 @@
 | 📁 **Workspace aware** | Knows the folder it runs in: stack, git state, `AGENTS.md` instructions |
 | 🔐 **Permission gate** | Every tool call is classified by risk and gated before it runs |
 | ⏰ **Scheduler** | Cron-style tasks that run unattended, with checkpoints, resume, exponential backoff, loop detection, and an audit log |
+| 🧭 **Persistent daemon** | Scheduled tasks stored in SQLite that survive restarts, with full 5-field cron parsing (ranges, steps, names) and graceful shutdown |
 | 🧩 **Plugins** | Explicitly loaded, versioned tools with JSON schemas and permission policies |
 
 ## 🚀 Quick Start
@@ -119,6 +120,19 @@ aegisx schedule cancel <id> # Pause a task now (interrupts an active run)
 aegisx schedule resume <id> # Resume a paused task from its checkpoint
 aegisx schedule checkpoint <id> # Show a task's latest persisted checkpoint
 aegisx schedule remove <id>
+
+# Persistent daemon (tasks survive restarts; lives in SQLite)
+aegisx daemon add nightly "summarise my inbox" --cron "0 9 * * 1-5"
+aegisx daemon add heartbeat "check CI status" --every 15m
+aegisx daemon run        # Foreground poll loop; Ctrl+C stops gracefully
+aegisx daemon list       # Tasks, next fire time, last result
+aegisx daemon remove <id>
+
+# Observability (token spend + gate decisions)
+aegisx usage             # Token/cost summary across recent runs
+aegisx usage --today     # Only today's runs
+aegisx audit             # Recent permission-gate decisions
+aegisx audit --denied    # Only refusals
 
 # Plugins (explicitly loaded, permission-aware)
 aegisx plugin list         # Loaded plugins + the gate's verdict for each
@@ -274,6 +288,35 @@ silently. Opt in explicitly with `AEGISX_ALLOWED_TOOLS` or
 
 Every decision is appended to `~/.aegisx/audit.log` as JSONL — tool, risk,
 verdict, who decided — with credential-shaped arguments redacted.
+
+## 📊 Observability
+
+Every agent run records one JSONL line in `~/.aegisx/usage.jsonl`: token
+counts, provider, model, duration, and a run id. Because the tracker wraps
+the LLM provider itself, **every** path — chat, plan execution, scheduled
+and daemon runs — is measured. Inspect spend without leaving the terminal:
+
+```bash
+aegisx usage              # Token/cost summary across recent runs
+aegisx usage --today
+aegisx audit --denied     # Only the gate's refusals
+```
+
+## 🧭 Persistent Daemon
+
+`aegisx schedule` tasks live in the chat process; `aegisx daemon` tasks live
+in SQLite (`~/.aegisx/daemon.db`) and survive restarts — start the daemon
+later and it picks up everything already scheduled, catching up missed fires
+(up to a limit) after downtime. Full standard cron syntax is supported:
+ranges (`9-17`), steps (`*/10`), month and weekday names (`JAN`, `MON`),
+with the standard day-of-month/day-of-week OR rule.
+
+```bash
+aegisx daemon add nightly "summarise my inbox" --cron "0 9 * * 1-5"
+aegisx daemon add pulse "check CI status" --every 15m
+aegisx daemon run
+aegisx daemon list
+```
 
 ## 📚 RAG (Document Ingestion)
 

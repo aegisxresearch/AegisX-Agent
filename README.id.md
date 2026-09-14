@@ -18,6 +18,7 @@
 | 📁 **Sadar Workspace** | Tahu folder tempatnya berjalan: stack, status git, instruksi `AGENTS.md` |
 | 🔐 **Gerbang Izin** | Setiap panggilan tool diklasifikasi berdasarkan risiko dan digate sebelum berjalan |
 | ⏰ **Penjadwal** | Tugas gaya-cron tanpa pengawasan, dengan checkpoint, resume, exponential backoff, deteksi loop, dan log audit |
+| 🧭 **Daemon persisten** | Tugas terjadwal tersimpan di SQLite dan bertahan melewati restart, dengan cron 5-field lengkap (rentang, step, nama) dan shutdown halus |
 | 🧩 **Plugin** | Tool terversi yang dimuat eksplisit, dengan JSON Schema dan kebijakan izin |
 
 ## 🚀 Mulai Cepat
@@ -277,6 +278,35 @@ atau `--permission-mode allow-all`.
 Setiap keputusan ditambahkan ke `~/.aegisx/audit.log` sebagai JSONL — tool,
 risiko, putusan, siapa yang memutuskan — dengan argumen berbentuk kredensial
 disensor.
+
+## 📊 Observabilitas
+
+Setiap run agen mencatat satu baris JSONL di `~/.aegisx/usage.jsonl`: jumlah
+token, provider, model, durasi, dan run id. Karena tracker membungkus
+provider LLM itu sendiri, **semua** jalur — chat, eksekusi plan, run
+jadwal dan daemon — terukur. Periksa pemakaian tanpa keluar dari terminal:
+
+```bash
+aegisx usage              # Ringkasan token/biaya lintas run terakhir
+aegisx usage --today
+aegisx audit --denied     # Hanya penolakan dari gerbang izin
+```
+
+## 🧭 Daemon Persisten
+
+Tugas `aegisx schedule` hidup di proses chat; tugas `aegisx daemon` hidup di
+SQLite (`~/.aegisx/daemon.db`) dan bertahan melewati restart — daemon yang
+jalankan belakangan tetap menjemput semua yang sudah terjadwal, termasuk
+mengejar fire yang terlewat saat downtime (dengan batas). Sintaks cron
+standar didukung penuh: rentang (`9-17`), step (`*/10`), nama bulan dan hari
+(`JAN`, `MON`), dengan aturan OR day-of-month/day-of-week standar.
+
+```bash
+aegisx daemon add nightly "ringkas inbox saya" --cron "0 9 * * 1-5"
+aegisx daemon add pulse "cek status CI" --every 15m
+aegisx daemon run
+aegisx daemon list
+```
 
 ## 📚 RAG (Ingesti Dokumen)
 

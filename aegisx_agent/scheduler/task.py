@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from aegisx_agent.scheduler.cron import next_fire as cron_next_fire
+
 
 class TaskStatus(str, Enum):
     """Task execution status."""
@@ -176,37 +178,12 @@ class ScheduledTask:
 
     @staticmethod
     def _parse_cron(expr: str, now: datetime) -> str:
-        """Simple cron parser for common patterns."""
-        from datetime import timedelta
+        """Standard 5-field cron parsing (ranges, steps, lists, names).
 
-        parts = expr.strip().split()
-        if len(parts) < 5:
-            return ""
-
-        minute, hour, day, month, weekday = parts
-
-        # Handle */N pattern (every N minutes/hours)
-        if minute.startswith("*/"):
-            try:
-                interval = int(minute[2:]) * 60
-                next_dt = now + timedelta(seconds=interval)
-                return next_dt.isoformat()
-            except ValueError:
-                pass
-
-        if hour.startswith("*/"):
-            try:
-                interval = int(hour[2:]) * 3600
-                next_dt = now + timedelta(seconds=interval)
-                return next_dt.isoformat()
-            except ValueError:
-                pass
-
-        # Handle specific time HH:MM
-        if minute.isdigit() and hour.isdigit():
-            next_dt = now.replace(hour=int(hour), minute=int(minute), second=0)
-            if next_dt <= now:
-                next_dt += timedelta(days=1)
-            return next_dt.isoformat()
-
-        return ""
+        ``*/15 * * * *`` lands on real :00/:15/:30/:45 boundaries instead of
+        drifting from the scheduling moment, and unparseable expressions
+        return ``""`` so the task is surfaced as misconfigured rather than
+        silently never firing.
+        """
+        fired = cron_next_fire(expr, now)
+        return fired.isoformat() if fired else ""

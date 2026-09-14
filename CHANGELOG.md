@@ -37,6 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Strict mypy in CI.** A dedicated `typecheck` job runs
   `mypy aegisx_agent` under `strict = true` on every push/PR, matching the
   local gate. The entire package now type-checks clean under strict mode.
+- **Token-usage tracking and audit viewer.** Every agent run appends one
+  JSONL line (token counts, provider, model, duration, run id) to
+  `~/.aegisx/usage.jsonl`; the tracker wraps the LLM provider so chat,
+  planning, scheduled, and daemon runs are all measured. New
+  `aegisx_agent/observability/` package, `aegisx usage` / `aegisx audit`
+  commands, and `/usage` / `/audit` slash commands. 17 new tests.
+- **Persistent scheduler daemon.** `aegisx daemon run|add|list|remove` plus
+  `/daemon` slash commands, backed by a SQLite store (`~/.aegisx/daemon.db`)
+  whose tasks survive restarts. `aegisx_agent/scheduler/daemon.py` polls for
+  due tasks, executes them unattended with the existing fail-closed
+  permission policy, catches up missed fires (capped), recovers runs
+  interrupted by a restart, and shuts down gracefully on SIGINT/SIGTERM.
+- **Full 5-field cron parsing.** New `aegisx_agent/scheduler/cron.py`
+  replaces the interval-only fallback: ranges, steps, lists, month and
+  weekday names, `0`/`7` Sunday equivalence, and the standard
+  day-of-month/day-of-week OR rule. `next_fire` now returns exact match
+  times instead of drifting.
 
 ### Fixed
 
