@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Versioned plugin system.** Tools can be extended explicitly with
+  `PluginManifest` + `define_plugin`, loaded from a module or Python path.
+  Plugins declare a JSON Schema, risk, and permission policy; the qualified
+  tool (`plugin_<id>_<name>`) still passes the global permission gate and
+  audit log. Importing AegisX never executes plugin code.
+- **Autonomous task resilience.** Scheduler tasks now persist checkpoints,
+  recover runs interrupted by a process restart (`resumed_after_restart`),
+  support request-cancel (which interrupts an active run) and explicit
+  resume, retry failures with exponential backoff bounded by `max_retries`,
+  and pause automatically when identical failures repeat beyond the retry
+  budget. Older `scheduler.db` files are migrated in place.
 - **Coverage gate in CI.** `pytest --cov` enforces a `fail_under` threshold from
   `pyproject.toml` (currently 61%), so coverage cannot silently regress.
 - **Dependabot + CodeQL.** Weekly dependency updates (pip, GitHub Actions) and

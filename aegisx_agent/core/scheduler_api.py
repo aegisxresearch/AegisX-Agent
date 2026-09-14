@@ -20,16 +20,28 @@ class SchedulerAPI:
         schedule_value: str,
         persona: str = "default",
         timeout: int = 120,
-    ) -> dict[str, str]:
+        max_retries: int = 3,
+    ) -> dict[str, Any]:
         """Add a scheduled task."""
-        task = self.scheduler.add_task(
-            name=name,
-            prompt=prompt,
-            schedule_type=schedule_type,
-            schedule_value=schedule_value,
-            persona=persona,
-            timeout=timeout,
-        )
+        if max_retries == 3:
+            task = self.scheduler.add_task(
+                name=name,
+                prompt=prompt,
+                schedule_type=schedule_type,
+                schedule_value=schedule_value,
+                persona=persona,
+                timeout=timeout,
+            )
+        else:
+            task = self.scheduler.add_task(
+                name=name,
+                prompt=prompt,
+                schedule_type=schedule_type,
+                schedule_value=schedule_value,
+                persona=persona,
+                timeout=timeout,
+                max_retries=max_retries,
+            )
         return task.to_dict()
 
     def remove_scheduled_task(self, task_id: str) -> bool:
@@ -58,6 +70,18 @@ class SchedulerAPI:
     async def run_due_scheduled_tasks(self) -> list[dict[str, Any]]:
         """Run all due scheduled tasks."""
         return await self.scheduler.run_due_tasks()
+
+    def request_scheduler_cancel(self, task_id: str) -> bool:
+        """Request cancellation of a running or pending scheduled task."""
+        return self.scheduler.request_cancel(task_id)
+
+    def resume_scheduled_task(self, task_id: str) -> bool:
+        """Resume a paused scheduled task from its persisted checkpoint."""
+        return self.scheduler.resume_task(task_id)
+
+    def get_scheduler_checkpoint(self, task_id: str) -> dict[str, Any] | None:
+        """Get the latest checkpoint for a scheduled task."""
+        return self.scheduler.get_checkpoint(task_id)
 
     async def start_scheduler(self, check_interval: int = 60) -> None:
         """Start the background scheduler loop."""

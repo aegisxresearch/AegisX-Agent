@@ -17,7 +17,8 @@
 | 🖥️ **CLI Kaya** | Antarmuka terminal indah dengan streaming |
 | 📁 **Sadar Workspace** | Tahu folder tempatnya berjalan: stack, status git, instruksi `AGENTS.md` |
 | 🔐 **Gerbang Izin** | Setiap panggilan tool diklasifikasi berdasarkan risiko dan digate sebelum berjalan |
-| ⏰ **Penjadwal** | Tugas gaya-cron yang berjalan tanpa pengawasan, dengan backoff dan log audit |
+| ⏰ **Penjadwal** | Tugas gaya-cron tanpa pengawasan, dengan checkpoint, resume, exponential backoff, deteksi loop, dan log audit |
+| 🧩 **Plugin** | Tool terversi yang dimuat eksplisit, dengan JSON Schema dan kebijakan izin |
 
 ## 🚀 Mulai Cepat
 
@@ -326,6 +327,17 @@ AEGISX_DENIED_TOOLS=                 # mis. shell
 AEGISX_AUDIT_LOG_ENABLED=true
 ```
 
+## 🧩 Plugin dan tugas autonomous
+
+Plugin tool terversi hanya dimuat secara eksplisit dari module atau path Python;
+plugin tidak dijalankan hanya karena AegisX diimpor. Semua plugin tetap melewati
+registri tool dan gerbang izin. Tugas scheduler menyimpan checkpoint, melanjutkan
+eksekusi setelah restart, mendukung pembatalan/resume, exponential backoff, dan
+pause otomatis setelah kegagalan identik berulang.
+
+Lihat [dokumentasi plugin dan tugas autonomous](docs/plugins-and-autonomous-tasks.md)
+untuk API Python dan detail lifecycle.
+
 ## 🏗️ Arsitektur
 
 ```
@@ -343,6 +355,7 @@ aegisx_agent/                 # paket flat di root repo (tanpa src/)
 │   ├── interactive.py        # Loop chat, progress animasi, dispatch slash
 │   ├── commands/             # Handler slash: permissions, code, schedule
 │   └── __init__.py           # Re-export untuk pemakaian programatik
+├── plugins/                  # Manifest tool terversi dan loader eksplisit
 ├── security/                 # Gerbang izin + log audit
 ├── llm/                      # Dukungan LLM multi-provider
 │   ├── base.py               # Abstraksi dasar
@@ -371,9 +384,9 @@ aegisx_agent/                 # paket flat di root repo (tanpa src/)
 │   └── advanced.py           # Prompt memory, sesi, model pengguna
 ├── rag/                      # Sistem RAG
 │   └── engine.py             # Vector store ChromaDB
-├── scheduler/                # Eksekusi terjadwal/otomatis
-│   ├── task.py               # Model tugas + kalkulasi jadwal
-│   └── engine.py             # Daemon penjadwal
+├── scheduler/                # Mesin tugas autonomous persisten
+│   ├── task.py               # Model task, checkpoint, retry/cancel state
+│   └── engine.py             # Resume, backoff, deteksi loop, daemon
 ├── skills/                   # Penangkapan + manajemen skill
 ├── planning/                 # Sistem perencanaan
 │   └── react.py              # Loop penalaran ReAct
@@ -386,6 +399,8 @@ aegisx_agent/                 # paket flat di root repo (tanpa src/)
 
 ## 📚 Dokumentasi
 
+- [Plugin dan tugas autonomous](docs/plugins-and-autonomous-tasks.md) — tool terversi, checkpoint, pembatalan, retry, dan deteksi loop
+- [Plugin dan tugas autonomous](docs/plugins-and-autonomous-tasks.md) — tool terversi, checkpoint, pembatalan, retry, dan deteksi loop
 - [Arsitektur core](docs/core.md) — batas modul runtime agen dan API RAG, memori, serta scheduler
 - [Arsitektur CLI](docs/cli.md) — cara paket CLI dipecah dan aturannya
 - [Versi bahasa Inggris](README.md) — README resmi

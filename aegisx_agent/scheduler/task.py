@@ -48,6 +48,10 @@ class ScheduledTask:
     notify: bool = True                  # Print result when done
     timeout: int = 120                   # Max seconds per run
     metadata: dict[str, Any] = field(default_factory=dict)
+    checkpoint: dict[str, Any] = field(default_factory=dict)
+    retry_count: int = 0
+    max_retries: int = 3
+    cancel_requested: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,13 +73,25 @@ class ScheduledTask:
             "notify": self.notify,
             "timeout": self.timeout,
             "metadata": self.metadata,
+            "checkpoint": self.checkpoint,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "cancel_requested": self.cancel_requested,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScheduledTask:
-        data["schedule_type"] = ScheduleType(data.get("schedule_type", "interval"))
-        data["status"] = TaskStatus(data.get("status", "pending"))
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        """Restore a task while tolerating records from older schema versions."""
+        restored = dict(data)
+        restored["schedule_type"] = ScheduleType(restored.get("schedule_type", "interval"))
+        restored["status"] = TaskStatus(restored.get("status", "pending"))
+        restored.setdefault("checkpoint", {})
+        restored.setdefault("retry_count", 0)
+        restored.setdefault("max_retries", 3)
+        restored.setdefault("cancel_requested", False)
+        return cls(**{
+            key: value for key, value in restored.items() if key in cls.__dataclass_fields__
+        })
 
     def calculate_next_run(self) -> str:
         """Calculate when this task should next run."""

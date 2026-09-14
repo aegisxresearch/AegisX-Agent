@@ -356,10 +356,88 @@ def test_background_loop_survives_due_selection_exploding(tmp_path, monkeypatch)
     assert calls["n"] >= 2
 
 
-def test_stop_is_idempotent(tmp_path) -> None:
+
+
+def test_checkpoint_is_persisted_and_survives_scheduler_restart(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent(reply="done"))
+    task = scheduler.add_task("checkpointed", "do it", "interval", "30m")
+    _make_due(scheduler, task.id)
+
+    result = run(scheduler.run_task(task))
+    assert result == "done"
+    checkpoint = scheduler.get_checkpoint(task.id)
+    assert checkpoint is not None
+    assert checkpoint["state"] == "completed"
+
+    reloaded = _scheduler(tmp_path, FakeAgent())
+    restored = reloaded.get_checkpoint(task.id)
+    assert restored is not None
+    assert restored["state"] == "completed"
+
+
+def test_running_task_is_recovered_as_pending_after_restart(tmp_path) -> None:
     scheduler = _scheduler(tmp_path, FakeAgent())
+    task = scheduler.add_task("interrupted", "do it", "interval", "30m")
+    task.status = TaskStatus.RUNNING
+    task.checkpoint = {"state": "running", "attempt": 1}
+    scheduler._save_task(task)
 
-    scheduler.stop()
-    scheduler.stop()  # no raise
+    reloaded = _scheduler(tmp_path, FakeAgent())
+    restored = reloaded.get_task(task.id)
 
-    assert scheduler._running is False
+    assert restored is not None
+    assert restored.status is TaskStatus.PENDING
+    assert restored.checkpoint["state"] == "resumed_after_restart"
+
+
+def test_cancel_request_interrupts_an_active_run_and_resume_reenables_it(tmp_path) -> None:
+    agent = FakeAgent(delay=10)
+    scheduler = _scheduler(tmp_path, agent)
+    task = scheduler.add_task("interruptible", "wait", "interval", "30m")
+
+    async def _drive() -> str:
+        running = asyncio.create_task(scheduler.run_task(task))
+        await asyncio.sleep(0.01)
+        assert scheduler.request_cancel(task.id) is True
+        return await asyncio.wait_for(running, timeout=2)
+
+    assert run(_drive()) == "Cancelled"
+    assert task.status is TaskStatus.PAUSED
+    assert task.checkpoint["state"] == "cancelled"
+    assert scheduler.resume_task(task.id) is True
+    assert task.cancel_requested is False
+    assert task.status is TaskStatus.PENDING
+    assert task.checkpoint["state"] == "resumed"
+
+
+def test_failed_runs_use_exponential_backoff(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent(error=RuntimeError("offline")))
+    task = scheduler.add_task("retrying", "try", "interval", "1s", max_retries=4)
+    _make_due(scheduler, task.id)
+
+    run(scheduler.run_task(task))
+    first_retry = datetime.fromisoformat(task.next_run)
+    first_delay = (first_retry - datetime.now()).total_seconds()
+
+    task.next_run = datetime.now().isoformat()
+    run(scheduler.run_task(task))
+    second_retry = datetime.fromisoformat(task.next_run)
+    second_delay = (second_retry - datetime.now()).total_seconds()
+
+    assert first_delay >= scheduler.RETRY_BACKOFF_SECONDS - 2
+    assert second_delay >= scheduler.RETRY_BACKOFF_SECONDS * 2 - 2
+    assert task.retry_count == 2
+
+
+def test_repeated_identical_failures_pause_task_after_retry_budget(tmp_path) -> None:
+    scheduler = _scheduler(tmp_path, FakeAgent(error=RuntimeError("same failure")))
+    task = scheduler.add_task("looping", "try", "interval", "1s", max_retries=2)
+
+    for _ in range(3):
+        task.next_run = datetime.now().isoformat()
+        run(scheduler.run_task(task))
+
+    assert task.status is TaskStatus.PAUSED
+    assert task.next_run == ""
+    assert task.checkpoint["state"] == "paused"
+    assert task.metadata["failure_streak"] == 3

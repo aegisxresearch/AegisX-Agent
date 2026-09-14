@@ -15,7 +15,8 @@
 | 🖥️ **Rich CLI** | Beautiful terminal interface with streaming |
 | 📁 **Workspace aware** | Knows the folder it runs in: stack, git state, `AGENTS.md` instructions |
 | 🔐 **Permission gate** | Every tool call is classified by risk and gated before it runs |
-| ⏰ **Scheduler** | Cron-style tasks that run unattended, with backoff and an audit log |
+| ⏰ **Scheduler** | Cron-style tasks that run unattended, with checkpoints, resume, exponential backoff, loop detection, and an audit log |
+| 🧩 **Plugins** | Explicitly loaded, versioned tools with JSON schemas and permission policies |
 
 ## 🚀 Quick Start
 
@@ -323,9 +324,20 @@ AEGISX_DENIED_TOOLS=                 # e.g. shell
 AEGISX_AUDIT_LOG_ENABLED=true
 ```
 
+## 🧩 Plugins and autonomous tasks
+
+Versioned tool plugins can be loaded explicitly from a module or Python path;
+they never execute merely because AegisX is imported. Every plugin remains
+behind the normal tool registry and permission gate. Scheduler tasks persist
+checkpoints, recover interrupted runs, support cancellation/resume, use
+exponential retry backoff, and pause after repeated identical failures.
+
+See [plugins and autonomous tasks](docs/plugins-and-autonomous-tasks.md) for the
+Python API and lifecycle details.
+
 ## 🏗️ Architecture
 
-```
+```text
 aegisx_agent/                 # flat package at the repo root (no src/)
 ├── core/                     # Agent runtime
 │   ├── agent.py              # AegisXAgent orchestrator and chat/planning
@@ -340,6 +352,7 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 │   ├── interactive.py        # Chat loop, animated progress, slash dispatch
 │   ├── commands/             # Slash handlers: permissions, code, schedule
 │   └── __init__.py           # Re-exports for programmatic use
+├── plugins/                  # Versioned tool manifests and explicit loader
 ├── security/                 # Permission gate + audit log
 ├── llm/                      # Multi-provider LLM support
 │   ├── base.py               # Base abstractions
@@ -368,29 +381,15 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 │   └── advanced.py           # Prompt memory, sessions, user model
 ├── rag/                      # RAG system
 │   └── engine.py             # ChromaDB vector store
-├── scheduler/                # Scheduled/automated runs
-│   ├── task.py               # Task model + schedule calculation
-│   └── engine.py             # Scheduler daemon
+├── scheduler/                # Persistent autonomous task engine
+│   ├── task.py               # Task model, checkpoint, retry/cancel state
+│   └── engine.py             # Resume, backoff, loop detection, daemon
 ├── skills/                   # Skill capture + management
 ├── planning/                 # Planning system
 │   └── react.py              # ReAct reasoning loop
-├── personas/                 # Persona system
+├── personas/                # Persona system
 │   └── loader.py             # Custom persona loader
 ├── project.py                # Project context detection
 ├── config.py                 # Back-compat re-export of core.config
 └── agent_loop.py             # Back-compat re-export of core.loop
 ```
-
-## 📚 Docs
-
-- [Core architecture](docs/core.md) — agent runtime APIs and module boundaries
-- [CLI architecture](docs/cli.md) — how the CLI package is split and its rules
-- [Dokumentasi bahasa Indonesia](README.id.md) — full Indonesian version of this README
-
-## 📜 Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for notable changes and bug fixes.
-
-## 📄 License
-
-MIT

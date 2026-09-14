@@ -18,6 +18,7 @@ from aegisx_agent.memory.advanced import PromptMemory, SessionStore, UserModel
 from aegisx_agent.memory.store import ConversationMemory, LongTermMemory
 from aegisx_agent.personas.loader import PersonaLoader
 from aegisx_agent.planning.react import ExecutionPlan, PlanBuilder
+from aegisx_agent.plugins import PluginDefinition, PluginRegistry
 from aegisx_agent.project import ProjectContext, detect_project
 from aegisx_agent.rag.engine import RAGEngine
 from aegisx_agent.scheduler.engine import Scheduler
@@ -78,6 +79,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         self._init_memory()
         self._init_rag()
         self._init_skills()
+        self.plugin_registry = PluginRegistry()
         self._init_tools()
         self._init_personas()
 
@@ -215,6 +217,30 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         # RAG search tool
         if self.config.rag_enabled and self._rag_engine:
             self.tools.register(RAGSearchTool(rag_engine=self._rag_engine))
+
+    def register_plugin(self, definition: PluginDefinition) -> str:
+        """Validate and register one explicit plugin as a gated tool."""
+        plugin_tool = self.plugin_registry.register(definition)
+        self.tools.register(plugin_tool)
+        return plugin_tool.name
+
+    def load_plugin_module(self, module: str) -> list[str]:
+        """Load and register plugin definitions from an importable module."""
+        definitions = self.plugin_registry.load_module(module)
+        return [self.register_plugin(definition) for definition in definitions]
+
+    def load_plugin_path(self, path: str) -> list[str]:
+        """Load and register plugin definitions from an explicit Python file."""
+        definitions = self.plugin_registry.load_path(path)
+        return [self.register_plugin(definition) for definition in definitions]
+
+    def unload_plugin(self, plugin_id: str) -> bool:
+        """Unload a plugin and remove its tool from the registry."""
+        definition = self.plugin_registry.unregister(plugin_id)
+        if definition is None:
+            return False
+        self.tools.unregister(definition.manifest.qualified_tool_name)
+        return True
 
     def _init_rag(self) -> None:
         """Initialize RAG engine."""
