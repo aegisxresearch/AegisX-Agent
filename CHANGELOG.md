@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP client support (Model Context Protocol).** AegisX can now consume
+  tools from any MCP server over stdio via the official `mcp` SDK
+  (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:
+  `MCPToolClient` (JSON-RPC handshake, discovery, tool calls on a dedicated
+  owner loop — sessions survive the agent's per-turn event loops),
+  `MCPToolBridge` (server tools become validated plugin definitions named
+  `plugin_mcp_<server>_<tool>`), and `MCPManager` (config persistence in
+  `~/.aegisx/mcp_servers.json`, Claude Desktop-compatible `mcpServers` shape).
+  CLI: `aegisx mcp list|connect|disconnect|add|remove` plus `/mcp` slash
+  commands. Security model: external code defaults to risk `caution`,
+  descriptions mentioning dangerous/destructive/irreversible escalate to
+  `dangerous`, read-only mode refuses MCP tools, and every call passes the
+  normal permission gate and audit log. Documented in
+  `docs/mcp-integration.md`; covered by 54 tests including a real demo MCP
+  server subprocess.
 - **Built-in plugins: browser, GitHub, database.** Three opt-in plugins ship
   under `aegisx_agent/plugins/builtin/`: `browser` (fetch pages as text, SSRF
   guard against private hosts, `AEGISX_ALLOW_PRIVATE_HTTP` opt-out), `github`

@@ -125,6 +125,13 @@ aegisx plugin list         # Loaded plugins + the gate's verdict for each
 aegisx plugin load ./my_plugin.py   # Load from a Python file
 aegisx plugin load my_pkg.plugins   # Load from an importable module
 aegisx plugin unload demo  # Remove a loaded plugin
+
+# MCP servers (Model Context Protocol — any external tool catalog)
+aegisx mcp list                     # Configured servers + connection state
+aegisx mcp connect filesystem       # Register a server's tools as gated plugins
+aegisx mcp disconnect filesystem    # Remove its tools, close the session
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp remove files
 ```
 
 ## 🔌 Supported Providers
@@ -371,6 +378,33 @@ Python API and lifecycle details. The CLI mirrors it: `aegisx plugin
 list|load|unload` shows each plugin with its risk and the gate's verdict under
 the current mode, and `aegisx schedule cancel|resume|checkpoint` controls
 tasks without leaving the terminal.
+
+### MCP servers (Model Context Protocol)
+
+AegisX can consume tools from **any MCP server** — the same versioned,
+permission-gated pipeline, so external tools are never a side door:
+
+```bash
+pip install "aegisx-agent[mcp]"      # optional extra: official mcp SDK
+```
+
+```bash
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp connect files             # → plugin_mcp_files_* tools registered
+aegisx mcp list                      # state + tools per server
+aegisx mcp disconnect files
+```
+
+- Tools arrive as `plugin_mcp_<server>_<tool>` and show up in `/tools` and
+  `/plugin list` with the gate's verdict for the current mode.
+- External code defaults to risk `caution`; a tool whose description mentions
+  *dangerous*/*destructive*/*irreversible* escalates to `dangerous`. In
+  `read-only` mode MCP tools are refused.
+- Config lives in `~/.aegisx/mcp_servers.json` using the same `mcpServers`
+  shape as Claude Desktop; per-tool risk overrides via `tool_risks`.
+
+See the [MCP integration guide](docs/mcp-integration.md) for the security
+model, config reference, and lifecycle notes.
 
 ## 🏗️ Architecture
 

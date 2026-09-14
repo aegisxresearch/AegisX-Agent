@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import typer
 from rich.markdown import Markdown
@@ -19,6 +21,13 @@ from aegisx_agent.cli.commands.code import (  # noqa: F401 — re-exported for t
     _handle_code_command,
     _handle_git_command,
     _handle_test_command,
+)
+from aegisx_agent.cli.commands.mcp import (  # noqa: F401 — re-exported for tests
+    MCP_USAGE,
+    _handle_mcp_command,
+    _load_server_config_file,
+    _parse_add_arguments,
+    _print_servers_table,
 )
 from aegisx_agent.cli.commands.permissions import (  # noqa: F401 — re-exported
     _handle_permissions_command,
@@ -45,6 +54,8 @@ from aegisx_agent.cli.interactive import (  # noqa: F401 — re-exported for tes
     _run_chat,
     _show_command_menu,
 )
+from aegisx_agent.mcp.client import MCPClientError
+from aegisx_agent.mcp.manager import MCPManagerError
 
 # Global agent and its config path live here so tests can monkeypatch them.
 _agent: AegisXAgent | None = None
@@ -537,6 +548,107 @@ def plugin_unload(
 
 
 app.add_typer(plugin_app, name="plugin")
+
+
+# ═══════════════════════════════════════════════════
+#  MCP TYPER COMMANDS (aegisx mcp ...)
+# ═══════════════════════════════════════════════════
+
+mcp_app = typer.Typer(help="🌐 Manage MCP (Model Context Protocol) servers")
+
+
+_T = TypeVar("_T")
+
+
+def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run a coroutine to completion from sync Typer command context."""
+    return asyncio.run(coro)
+
+
+@mcp_app.command("list")
+def mcp_list() -> None:
+    """List configured MCP servers and their connection state."""
+    agent = _get_agent(_get_config())
+    _print_servers_table(agent)
+
+
+@mcp_app.command("connect")
+def mcp_connect(
+    server_id: str = typer.Argument(..., help="Server id from the MCP config"),
+    config_file: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="One-shot JSON config (mcpServers document or one server object)",
+    ),
+) -> None:
+    """Connect to an MCP server and register its tools as gated plugins."""
+    agent = _get_agent(_get_config())
+    try:
+        server_config = (
+            _load_server_config_file(str(config_file.expanduser()), server_id)
+            if config_file
+            else None
+        )
+        names = _run_async(agent.connect_mcp_server(server_id, server_config))
+    except (MCPManagerError, MCPClientError, ValueError, OSError, json.JSONDecodeError) as exc:
+        console.print(f"[error]MCP connect failed: {type(exc).__name__}: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"[success]🌐 Connected to '{server_id}' — {len(names)} tool(s) registered[/success]"
+    )
+    for name in names:
+        tool = agent.tools.get(name)
+        risk = tool.risk.value if tool else "?"
+        console.print(f"  • {name} [yellow]({risk})[/yellow]")
+
+
+@mcp_app.command("disconnect")
+def mcp_disconnect(
+    server_id: str = typer.Argument(..., help="Server id to disconnect"),
+) -> None:
+    """Disconnect an MCP server and remove its tools from the registry."""
+    agent = _get_agent(_get_config())
+    if not _run_async(agent.disconnect_mcp_server(server_id)):
+        console.print(f"[error]MCP server '{server_id}' is not connected[/error]")
+        raise typer.Exit(code=1)
+    console.print(f"[success]🔌 Disconnected '{server_id}' — its tools were removed[/success]")
+
+
+@mcp_app.command("add")
+def mcp_add(
+    server_id: str = typer.Argument(..., help="Short id used in tool names (mcp_<id>_<tool>)"),
+    command: str = typer.Argument(..., help="Executable that speaks MCP over stdio"),
+    args: list[str] = typer.Argument(None, help="Arguments for the command"),
+    risk: str | None = typer.Option(None, "--risk", help="Default risk: safe, caution, dangerous"),
+) -> None:
+    """Persist a stdio MCP server config for later connect."""
+    agent = _get_agent(_get_config())
+    server_config: dict[str, Any] = {"command": command, "args": list(args or [])}
+    if risk is not None:
+        server_config["risk"] = risk
+    try:
+        agent.mcp.persist_server(server_id, server_config)
+    except MCPManagerError as exc:
+        console.print(f"[error]MCP add failed: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[success]✅ Saved '{server_id}' to {agent.mcp.config_path}[/success]")
+    _print_servers_table(agent)
+
+
+@mcp_app.command("remove")
+def mcp_remove(
+    server_id: str = typer.Argument(..., help="Server id to remove from the config"),
+) -> None:
+    """Remove an MCP server from the persisted config."""
+    agent = _get_agent(_get_config())
+    if not agent.mcp.remove_server_config(server_id):
+        console.print(f"[error]No configured MCP server: {server_id}[/error]")
+        raise typer.Exit(code=1)
+    console.print(f"[success]🗑 Removed '{server_id}' from the MCP config[/success]")
+
+
+app.add_typer(mcp_app, name="mcp")
 
 
 # ═══════════════════════════════════════════════════

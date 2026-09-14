@@ -17,6 +17,11 @@ from aegisx_agent.cli.commands.code import (
     _handle_git_command,
     _handle_test_command,
 )
+from aegisx_agent.cli.commands.mcp import (
+    MCP_USAGE,
+    _handle_mcp_command,
+    _print_servers_table,
+)
 from aegisx_agent.cli.commands.permissions import (
     _handle_permissions_command,
     _print_tools_table,
@@ -62,13 +67,16 @@ __all__ = [
     "_get_config",
     "_handle_code_command",
     "_handle_git_command",
+    "_handle_mcp_command",
     "_handle_permissions_command",
     "_handle_plugin_command",
     "_handle_schedule_command",
     "_handle_slash_command",
     "_handle_test_command",
     "_permission_prompt",
+    "MCP_USAGE",
     "_print_plugins_table",
+    "_print_servers_table",
     "_print_schedule_logs",
     "_print_schedule_results",
     "_print_tools_table",

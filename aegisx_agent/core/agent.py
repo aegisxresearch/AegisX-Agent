@@ -14,6 +14,7 @@ from aegisx_agent.core.rag_api import RAGAPI
 from aegisx_agent.core.scheduler_api import SchedulerAPI
 from aegisx_agent.llm.base import LLMProvider, Message, Role
 from aegisx_agent.llm.factory import create_llm_provider
+from aegisx_agent.mcp import MCPManager, load_mcp_config
 from aegisx_agent.memory.advanced import PromptMemory, SessionStore, UserModel
 from aegisx_agent.memory.store import ConversationMemory, LongTermMemory
 from aegisx_agent.personas.loader import PersonaLoader
@@ -82,6 +83,14 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         self.plugin_registry = PluginRegistry()
         self._init_tools()
         self._init_personas()
+
+        # MCP servers (Model Context Protocol): external tool catalogs that
+        # are bridged through the plugin registry and the permission gate.
+        self.mcp = MCPManager(
+            data_path=self.config.data_path,
+            plugin_registry=self.plugin_registry,
+            tool_registry=self.tools,
+        )
 
         # Agentic loop
         self.agent_loop = AgenticLoop(
@@ -242,6 +251,39 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         for definition in definitions:
             self.tools.unregister(definition.manifest.qualified_tool_name)
         return True
+
+    # ------------------------------------------------------------------ #
+    # MCP (Model Context Protocol) servers
+    # ------------------------------------------------------------------ #
+
+    async def connect_mcp_server(
+        self, server_id: str, server_config: dict[str, Any] | None = None
+    ) -> list[str]:
+        """Connect to an MCP server and register its tools as gated plugins.
+
+        Without ``server_config`` the persisted config from
+        ``<data_dir>/mcp_servers.json`` is used. Returns the qualified tool
+        names (``mcp_<server>_<tool>``).
+        """
+        if server_config is None:
+            server_config = self.mcp.get_server_config(server_id)
+        return await self.mcp.connect_server(server_id, server_config)
+
+    async def disconnect_mcp_server(self, server_id: str) -> bool:
+        """Disconnect an MCP server and remove every tool it brought."""
+        return await self.mcp.disconnect_server(server_id)
+
+    def list_mcp_servers(self) -> dict[str, dict[str, Any]]:
+        """Configured MCP servers, each annotated with connection state."""
+        servers = load_mcp_config(self.mcp.config_path)
+        return {
+            server_id: {**server_config, "connected": self.mcp.is_connected(server_id)}
+            for server_id, server_config in servers.items()
+        }
+
+    async def close_mcp_connections(self) -> None:
+        """Tear down every MCP session (used at shutdown)."""
+        await self.mcp.close_all()
 
     def _init_rag(self) -> None:
         """Initialize RAG engine."""

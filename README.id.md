@@ -127,6 +127,13 @@ aegisx plugin list         # Plugin termuat + putusan gate untuk masing-masing
 aegisx plugin load ./plugin_saya.py # Muat dari file Python
 aegisx plugin load paket_saya.plugins # Muat dari module yang bisa diimpor
 aegisx plugin unload demo  # Hapus plugin yang termuat
+
+# Server MCP (Model Context Protocol — katalog tool eksternal apa pun)
+aegisx mcp list                     # Server terkonfigurasi + status koneksi
+aegisx mcp connect filesystem       # Daftarkan tool server sebagai plugin bergerbang
+aegisx mcp disconnect filesystem    # Hapus tool-nya, tutup sesi
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp remove files
 ```
 
 ## 🔌 Provider yang Didukung
@@ -374,6 +381,34 @@ untuk API Python dan detail lifecycle. CLI-nya mengikuti: `aegisx plugin
 list|load|unload` menampilkan setiap plugin beserta risiko dan putusan gate di
 current mode, sedangkan `aegisx schedule cancel|resume|checkpoint` mengontrol
 tugas tanpa keluar dari terminal.
+
+### Server MCP (Model Context Protocol)
+
+AegisX dapat mengonsumsi tool dari **server MCP apa pun** — lewat pipeline
+versi dan gerbang izin yang sama, sehingga tool eksternal tidak pernah menjadi
+pintu tikus:
+
+```bash
+pip install "aegisx-agent[mcp]"      # ekstra opsional: SDK mcp resmi
+```
+
+```bash
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp connect files             # → tool plugin_mcp_files_* terdaftar
+aegisx mcp list                      # status + tool per server
+aegisx mcp disconnect files
+```
+
+- Tool tiba sebagai `plugin_mcp_<server>_<tool>` dan muncul di `/tools` dan
+  `/plugin list` lengkap dengan putusan gate untuk mode saat ini.
+- Kode eksternal bawaannya berisiko `caution`; tool yang deskripsinya
+  menyebut *dangerous*/*destructive*/*irreversible* naik ke `dangerous`. Di
+  mode `read-only`, tool MCP ditolak.
+- Konfigurasi di `~/.aegisx/mcp_servers.json` dengan bentuk `mcpServers` yang
+  sama seperti Claude Desktop; override risiko per tool lewat `tool_risks`.
+
+Lihat [panduan integrasi MCP](docs/mcp-integration.md) untuk model keamanan,
+referensi konfigurasi, dan catatan lifecycle.
 
 ## 🏗️ Arsitektur
 
