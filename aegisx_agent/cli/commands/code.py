@@ -7,6 +7,15 @@ import asyncio
 from rich.panel import Panel
 
 from aegisx_agent.cli.app import console
+from aegisx_agent.tools.base import ToolResult
+
+
+def _print_result(result: ToolResult) -> None:
+    """Print a tool result; errors must be visible, never silently swallowed."""
+    if result.is_success:
+        console.print(result.output)
+    else:
+        console.print(f"[error]⚠️ Tool error: {result.error or 'unknown error'}[/error]")
 
 
 def _handle_code_command(args: str, agent):
@@ -20,28 +29,28 @@ def _handle_code_command(args: str, agent):
             result = asyncio.run(
                 agent.tools.execute("codebase", {"action": "structure", "path": arg})
             )
-            console.print(result.output)
+            _print_result(result)
         case "find":
             result = asyncio.run(
                 agent.tools.execute("codebase", {"action": "find", "path": ".", "query": arg})
             )
-            console.print(result.output)
+            _print_result(result)
         case "search":
             result = asyncio.run(
                 agent.tools.execute("codebase", {"action": "search", "path": ".", "query": arg})
             )
-            console.print(result.output)
+            _print_result(result)
         case "read":
             result = asyncio.run(agent.tools.execute("codebase", {"action": "read", "path": arg}))
-            console.print(result.output)
+            _print_result(result)
         case "deps":
             result = asyncio.run(agent.tools.execute("codebase", {"action": "deps", "path": arg}))
-            console.print(result.output)
+            _print_result(result)
         case "summary":
             result = asyncio.run(
                 agent.tools.execute("codebase", {"action": "summary", "path": arg})
             )
-            console.print(result.output)
+            _print_result(result)
         case _:
             console.print("[dim]Usage:[/dim]")
             console.print("  /code structure [path]     — Show project tree")
@@ -61,10 +70,10 @@ def _handle_git_command(args: str, agent):
     match subcmd:
         case "status" | "st":
             result = asyncio.run(agent.tools.execute("git", {"action": "status"}))
-            console.print(result.output)
+            _print_result(result)
         case "diff" | "di":
             result = asyncio.run(agent.tools.execute("git", {"action": "diff", "args": arg}))
-            console.print(result.output)
+            _print_result(result)
         case "commit" | "ci":
             if not arg:
                 console.print("[dim]Usage: /git commit <message>[/dim]")
@@ -72,13 +81,13 @@ def _handle_git_command(args: str, agent):
                 result = asyncio.run(
                     agent.tools.execute("git", {"action": "commit", "message": arg})
                 )
-                console.print(result.output)
+                _print_result(result)
         case "log" | "lg":
             result = asyncio.run(agent.tools.execute("git", {"action": "log"}))
-            console.print(result.output)
+            _print_result(result)
         case "branch" | "br":
             result = asyncio.run(agent.tools.execute("git", {"action": "branch", "branch": arg}))
-            console.print(result.output)
+            _print_result(result)
         case _:
             console.print("[dim]Usage:[/dim]")
             console.print("  /git status       — Show working tree status")
@@ -96,4 +105,5 @@ def _handle_test_command(args: str, agent):
     if result.is_success:
         console.print(Panel(result.output, title="✅ Tests Passed", border_style="green"))
     else:
-        console.print(Panel(result.output, title="❌ Tests Failed", border_style="red"))
+        detail = result.output or result.error or "unknown failure"
+        console.print(Panel(detail, title="❌ Tests Failed", border_style="red"))
