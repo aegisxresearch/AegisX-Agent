@@ -88,7 +88,7 @@ class TestRunnerTool(Tool):
             exit_code = process.returncode
 
             # Parse output
-            output = self._parse_output(cmd, stdout_str, stderr_str, exit_code)
+            output = self._parse_output(cmd, stdout_str, stderr_str, exit_code or 0)
             status = ToolStatus.SUCCESS if exit_code == 0 else ToolStatus.ERROR
 
             return ToolResult(

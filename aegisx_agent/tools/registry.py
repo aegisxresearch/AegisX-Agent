@@ -50,7 +50,10 @@ class ToolRegistry:
     @staticmethod
     def _accepted_params(tool: Tool) -> list[str]:
         """Parameter names declared by the tool's JSON schema."""
-        properties = (tool.parameters or {}).get("properties", {})
+        parameters = tool.parameters or {}
+        properties = parameters.get("properties")
+        if not isinstance(properties, dict):
+            return []
         return list(properties.keys())
 
     def _parse_arguments(
@@ -66,27 +69,27 @@ class ToolRegistry:
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError:
-                accepted = ", ".join(self._accepted_params(tool)) or "(none)"
+                expected = ", ".join(self._accepted_params(tool)) or "(none)"
                 return ToolResult(
                     status=ToolStatus.ERROR,
                     output="",
                     error=(
                         f"Arguments for tool '{tool.name}' are not valid JSON: {raw[:200]!r}. "
-                        f"Expected a JSON object with parameters: {accepted}"
+                        f"Expected a JSON object with parameters: {expected}"
                     ),
                 )
-            args = parsed if isinstance(parsed, dict) else {"input": parsed}
+            args = dict(parsed) if isinstance(parsed, dict) else {"input": parsed}
 
-        accepted = self._accepted_params(tool)
-        if accepted:
-            unknown = [key for key in args if key not in accepted]
+        accepted_params = self._accepted_params(tool)
+        if accepted_params:
+            unknown = [key for key in args if key not in accepted_params]
             if unknown:
                 return ToolResult(
                     status=ToolStatus.ERROR,
                     output="",
                     error=(
                         f"Unknown parameter(s) {unknown} for tool '{tool.name}'. "
-                        f"Expected parameters: {', '.join(accepted)}"
+                        f"Expected parameters: {', '.join(accepted_params)}"
                     ),
                 )
         return args

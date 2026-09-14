@@ -114,7 +114,7 @@ class DatabaseQueryTool(Tool):
             )
 
     async def _query_sqlite(
-        self, query: str, db_path: str, params: list, action: str, table: str
+        self, query: str, db_path: str, params: list[Any], action: str, table: str
     ) -> ToolResult:
         """Query SQLite database."""
         import sqlite3
@@ -222,7 +222,7 @@ class DatabaseQueryTool(Tool):
             conn.close()
 
     async def _query_postgres(
-        self, query: str, conn_str: str, params: list, action: str, table: str
+        self, query: str, conn_str: str, params: list[Any], action: str, table: str
     ) -> ToolResult:
         """Query PostgreSQL database."""
         try:

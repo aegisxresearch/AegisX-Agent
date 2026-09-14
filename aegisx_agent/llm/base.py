@@ -114,7 +114,7 @@ class LLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream_chat(
+    def stream_chat(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,

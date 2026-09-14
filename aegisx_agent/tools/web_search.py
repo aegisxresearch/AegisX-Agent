@@ -97,10 +97,10 @@ class WebSearchTool(Tool):
 
             def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
                 attrs_dict = dict(attrs)
-                cls = attrs_dict.get("class", "")
+                cls = attrs_dict.get("class") or ""
                 if tag == "a" and "result__a" in cls:
                     self._in_title = True
-                    self._current["url"] = attrs_dict.get("href", "")
+                    self._current["url"] = attrs_dict.get("href") or ""
                     self._current["title"] = ""
                 if tag == "a" and "result__snippet" in cls:
                     self._in_snippet = True

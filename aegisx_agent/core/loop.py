@@ -40,7 +40,7 @@ class AgentStep:
     thought: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_results: list[dict[str, Any]] = field(default_factory=list)
-    reflection: str | None = None
+    reflection: str | dict[str, Any] | None = None
     outcome: StepOutcome = StepOutcome.NEEDS_TOOLS
     timestamp: float = field(default_factory=time.time)
 
@@ -302,7 +302,7 @@ class AgenticLoop:
                 )
                 step.reflection = reflection
 
-                if reflection.get("assessment") == "complete":
+                if reflection["assessment"] == "complete":
                     # Agent thinks it's done
                     final = await self._get_final_answer(working_messages)
                     step.outcome = StepOutcome.COMPLETED
@@ -443,10 +443,12 @@ class AgenticLoop:
                 max_tokens=500,
             )
 
-            json_start = (response.content or "").find("{")
-            json_end = (response.content or "").rfind("}") + 1
+            text = response.content or ""
+            json_start = text.find("{")
+            json_end = text.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                return json.loads(response.content[json_start:json_end])
+                parsed: dict[str, Any] = json.loads(text[json_start:json_end])
+                return parsed
         except Exception:
             pass
 
@@ -476,10 +478,11 @@ class AgenticLoop:
                 max_tokens=500,
             )
 
-            json_start = (response.content or "").find("{")
-            json_end = (response.content or "").rfind("}") + 1
+            text = response.content or ""
+            json_start = text.find("{")
+            json_end = text.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                recovery = json.loads(response.content[json_start:json_end])
+                recovery: dict[str, Any] = json.loads(text[json_start:json_end])
 
                 # Try alternative tool if suggested
                 alt_tool = recovery.get("alternative_tool")

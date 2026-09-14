@@ -305,7 +305,7 @@ class CodebaseTool(Tool):
         return ToolResult(status=ToolStatus.SUCCESS, output=output)
 
     @staticmethod
-    def _format_size(size: int) -> str:
+    def _format_size(size: float) -> str:
         for unit in ["B", "KB", "MB"]:
             if size < 1024:
                 return f"{size:.0f}{unit}"

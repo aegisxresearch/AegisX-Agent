@@ -213,7 +213,7 @@ class FileOperationsTool(Tool):
         return ToolResult(status=ToolStatus.SUCCESS, output=info)
 
     @staticmethod
-    def _format_size(size: int) -> str:
+    def _format_size(size: float) -> str:
         for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024:
                 return f"{size:.1f} {unit}"

@@ -222,7 +222,7 @@ class UserModel:
     def _load(self) -> dict[str, Any]:
         if self.model_file.exists():
             try:
-                return json.loads(self.model_file.read_text())
+                return json.loads(self.model_file.read_text())  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 pass
         return {
