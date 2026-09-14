@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
 
 from aegisx_agent.cli.app import console
 from aegisx_agent.tools.base import ToolResult
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
 
 
 def _print_result(result: ToolResult) -> None:
@@ -18,7 +22,7 @@ def _print_result(result: ToolResult) -> None:
         console.print(f"[error]⚠️ Tool error: {result.error or 'unknown error'}[/error]")
 
 
-def _handle_code_command(args: str, agent):
+def _handle_code_command(args: str, agent: AegisXAgent) -> None:
     """Handle /code subcommands."""
     parts = args.split(maxsplit=1)
     subcmd = parts[0] if parts else ""
@@ -61,7 +65,7 @@ def _handle_code_command(args: str, agent):
             console.print("  /code summary [path]       — Project overview")
 
 
-def _handle_git_command(args: str, agent):
+def _handle_git_command(args: str, agent: AegisXAgent) -> None:
     """Handle /git subcommands."""
     parts = args.split(maxsplit=1)
     subcmd = parts[0] if parts else "status"
@@ -97,7 +101,7 @@ def _handle_git_command(args: str, agent):
             console.print("  /git branch       — List branches")
 
 
-def _handle_test_command(args: str, agent):
+def _handle_test_command(args: str, agent: AegisXAgent) -> None:
     """Handle /test command."""
     path = args.strip() if args.strip() else "."
     console.print(f"[yellow]🧪 Running tests in {path}...[/yellow]")

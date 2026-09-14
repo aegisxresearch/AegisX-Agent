@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.table import Table
 
 from aegisx_agent.cli.app import console
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
+    from aegisx_agent.tools.base import ToolRisk
 
 #: Colour per risk level, so the gated tools stand out in a listing.
 _RISK_STYLES = {"safe": "green", "caution": "yellow", "dangerous": "bold red"}
 
 
-def _risk_label(risk) -> str:
+def _risk_label(risk: ToolRisk) -> str:
     value = risk.value
     return f"[{_RISK_STYLES.get(value, 'white')}]{value}[/]"
 
 
-def _print_tools_table(agent, max_width: int = 60, title: str = "🔧 Available Tools") -> None:
+def _print_tools_table(
+    agent: AegisXAgent, max_width: int = 60, title: str = "🔧 Available Tools"
+) -> None:
     """List the agent's tools together with how the gate treats each one."""
     table = Table(title=title, border_style="yellow")
     table.add_column("Tool", style="bold")
@@ -30,7 +38,7 @@ def _print_tools_table(agent, max_width: int = 60, title: str = "🔧 Available 
     )
 
 
-def _handle_permissions_command(args: str, agent):
+def _handle_permissions_command(args: str, agent: AegisXAgent) -> None:
     """Show or change which tools the agent may run without asking."""
     parts = args.split()
     action = parts[0].lower() if parts else ""

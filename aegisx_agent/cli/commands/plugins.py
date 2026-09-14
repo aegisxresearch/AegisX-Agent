@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.table import Table
 
 from aegisx_agent.cli.app import console
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
+    from aegisx_agent.tools.base import Tool, ToolRisk
 
 PLUGIN_USAGE = (
     "[dim]Usage:[/dim]\n"
@@ -16,12 +22,12 @@ PLUGIN_USAGE = (
 _RISK_STYLES = {"safe": "green", "caution": "yellow", "dangerous": "bold red"}
 
 
-def _risk_label(risk) -> str:
+def _risk_label(risk: ToolRisk) -> str:
     value = risk.value
     return f"[{_RISK_STYLES.get(value, 'white')}]{value}[/]"
 
 
-def _gate_verdict(agent, tool) -> str:
+def _gate_verdict(agent: AegisXAgent, tool: Tool) -> str:
     """Describe what the permission gate would do to this plugin's calls."""
     mode = agent.permission_gate.mode
     if tool.name in agent.permission_gate.denied_tools:
@@ -40,7 +46,7 @@ def _gate_verdict(agent, tool) -> str:
     return "[green]allowed[/]"
 
 
-def _print_plugins_table(agent, title: str = "🧩 Loaded Plugins") -> None:
+def _print_plugins_table(agent: AegisXAgent, title: str = "🧩 Loaded Plugins") -> None:
     """List loaded plugins with their schema, policy, and gate verdict."""
     plugins = agent.plugin_registry.list_plugins()
     if not plugins:
@@ -71,7 +77,7 @@ def _print_plugins_table(agent, title: str = "🧩 Loaded Plugins") -> None:
     )
 
 
-def _handle_plugin_command(args: str, agent):
+def _handle_plugin_command(args: str, agent: AegisXAgent) -> None:
     """Handle /plugin subcommands in the chat loop."""
     parts = args.split(maxsplit=1)
     subcmd = parts[0].lower() if parts else ""

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -24,6 +26,9 @@ from aegisx_agent.cli.commands.permissions import (
 )
 from aegisx_agent.cli.commands.plugins import _handle_plugin_command
 from aegisx_agent.cli.commands.schedule import _handle_schedule_command
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
 
 # ═══════════════════════════════════════════════════
 #  ANIMATED PROGRESS
@@ -45,17 +50,17 @@ TOOL_ICONS = {
 class AnimatedProgress:
     """Animated spinner that shows thinking/tool status."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._frame = 0
         self._running = False
         self._message = ""
 
-    def thinking(self, message="🤔 Thinking..."):
+    def thinking(self, message: str = "🤔 Thinking...") -> None:
         """Show thinking animation."""
         self._message = message
         self._running = True
 
-    def tool_call(self, tool_name: str, status: str = "running"):
+    def tool_call(self, tool_name: str, status: str = "running") -> None:
         """Show tool call animation."""
         icon = TOOL_ICONS.get(tool_name, "🔧")
         if status == "running":
@@ -65,7 +70,7 @@ class AnimatedProgress:
         elif status == "error":
             self._message = f"{icon} {tool_name} ❌"
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
 
     def get_frame(self) -> str:
@@ -107,7 +112,7 @@ COMMANDS = {
 }
 
 
-def _show_command_menu(filter_text: str = ""):
+def _show_command_menu(filter_text: str = "") -> None:
     """Show / command menu."""
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column("Icon", style="bold")
@@ -123,7 +128,7 @@ def _show_command_menu(filter_text: str = ""):
     console.print()
 
 
-def _handle_slash_command(cmd: str, agent) -> bool:
+def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
     """Handle slash commands. Returns True if handled."""
     parts = cmd.strip().split(maxsplit=1)
     command = parts[0].lower()
@@ -276,15 +281,17 @@ def _handle_slash_command(cmd: str, agent) -> bool:
 
         case "/ingest":
             if args:
-                from pathlib import Path
-                p = Path(args).expanduser()
-                if not p.exists():
+                target_path = Path(args).expanduser()
+                if not target_path.exists():
                     console.print(f"[error]Path not found: {args}[/error]")
-                elif p.is_dir():
-                    chunks = asyncio.run(agent._rag_engine.ingest_directory(str(p)))
+                elif target_path.is_dir():
+                    if agent._rag_engine is None:
+                        console.print("[error]RAG is disabled. Enable it in config.[/error]")
+                        return True
+                    chunks = asyncio.run(agent._rag_engine.ingest_directory(str(target_path)))
                     console.print(f"[success]✅ Ingested {chunks} chunks from {args}[/success]")
                 else:
-                    chunks = asyncio.run(agent.ingest_document(str(p)))
+                    chunks = asyncio.run(agent.ingest_document(str(target_path)))
                     console.print(f"[success]✅ Ingested {chunks} chunks from {args}[/success]")
             else:
                 console.print("[dim]Usage: /ingest <path-to-file-or-directory>[/dim]")
@@ -312,7 +319,7 @@ def _handle_slash_command(cmd: str, agent) -> bool:
 #  WORKSPACE
 # ═══════════════════════════════════════════════════
 
-def _print_workspace(agent) -> None:
+def _print_workspace(agent: AegisXAgent) -> None:
     """Show the folder the agent is working in, so its choices make sense."""
     project = agent.get_project()
     if project is None:
@@ -348,7 +355,7 @@ def _read_piped_prompt() -> str:
 #  MAIN CHAT LOOP
 # ═══════════════════════════════════════════════════
 
-def _run_chat(agent, no_stream=False):
+def _run_chat(agent: AegisXAgent, no_stream: bool = False) -> None:
     """Main interactive chat loop."""
     info = agent.get_provider_info()
 
@@ -420,11 +427,11 @@ def _run_chat(agent, no_stream=False):
                 console.print(f"\n[error]Error: {e}[/error]")
 
 
-def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
+def _chat_with_animation(agent: AegisXAgent, user_message: str, no_stream: bool = False) -> None:
     """Chat with animated thinking/tool progress + streaming."""
     progress = AnimatedProgress()
 
-    def _animate():
+    def _animate() -> None:
         while progress._running:
             frame = progress.get_frame()
             if frame:
@@ -458,7 +465,7 @@ def _chat_with_animation(agent, user_message: str, no_stream: bool = False):
             console.print()
             console.print("[bold green]🤖 AegisX:[/bold green] ", end="")
 
-            async def _stream():
+            async def _stream() -> None:
                 async for chunk in agent.chat_stream(user_message):
                     # Typewriter effect (tool status lines included)
                     sys.stdout.write(chunk)

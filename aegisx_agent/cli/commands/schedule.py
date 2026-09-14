@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.table import Table
 
 from aegisx_agent.cli.app import console
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
 
 SCHEDULE_FLAGS = ("--interval", "--daily", "--weekly", "--cron", "--persona", "--timeout")
 
@@ -86,7 +90,7 @@ def _resolve_schedule(
     return _flags_to_schedule(provided)
 
 
-def _print_schedule_results(results: list[dict]) -> None:
+def _print_schedule_results(results: list[dict[str, Any]]) -> None:
     """Render the outcome of a scheduler run."""
     if not results:
         console.print("[dim]No tasks are due.[/dim]")
@@ -101,7 +105,7 @@ def _print_schedule_results(results: list[dict]) -> None:
     console.print(table)
 
 
-def _print_schedule_logs(agent, task_id: str, limit: int = 10) -> None:
+def _print_schedule_logs(agent: AegisXAgent, task_id: str, limit: int = 10) -> None:
     """Render the run history of one scheduled task."""
     logs = agent.get_scheduled_task_logs(task_id, limit=limit)
     if not logs:
@@ -122,7 +126,7 @@ def _print_schedule_logs(agent, task_id: str, limit: int = 10) -> None:
     console.print(table)
 
 
-def _handle_schedule_command(args: str, agent):
+def _handle_schedule_command(args: str, agent: AegisXAgent) -> None:
     """Handle /schedule subcommands."""
     parts = args.split(maxsplit=1)
     subcmd = parts[0] if parts else ""

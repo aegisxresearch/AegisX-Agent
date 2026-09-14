@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.markdown import Markdown
@@ -12,7 +13,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-from aegisx_agent.cli.app import app, console
+from aegisx_agent.cli.app import app as app  # re-exported  # noqa: F401
+from aegisx_agent.cli.app import console
 from aegisx_agent.cli.commands.code import (  # noqa: F401 — re-exported for tests
     _handle_code_command,
     _handle_git_command,
@@ -45,23 +47,29 @@ from aegisx_agent.cli.interactive import (  # noqa: F401 — re-exported for tes
 )
 
 # Global agent and its config path live here so tests can monkeypatch them.
-_agent = None
+_agent: AegisXAgent | None = None
+
+if TYPE_CHECKING:
+    from aegisx_agent.core import AegisXAgent
+    from aegisx_agent.core.config import AgentConfig
+    from aegisx_agent.security.permissions import PermissionRequest
 
 CONFIG_FILE = Path.home() / ".aegisx" / "config.json"
 
 
-def _load_saved_config() -> dict | None:
+def _load_saved_config() -> dict[str, Any] | None:
     """Load saved config from ~/.aegisx/config.json."""
     if CONFIG_FILE.exists():
         try:
             import json
-            return json.loads(CONFIG_FILE.read_text())
+            loaded: dict[str, Any] = json.loads(CONFIG_FILE.read_text())
+            return loaded
         except (json.JSONDecodeError, Exception):
             pass
     return None
 
 
-def _save_config(config) -> None:
+def _save_config(config: AgentConfig) -> None:
     """Save config to ~/.aegisx/config.json."""
     import json
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -85,7 +93,12 @@ def _announce_local_provider(base_url: str, model: str) -> None:
     )
 
 
-def _get_config(provider=None, model=None, api_key=None, custom_url=None):
+def _get_config(
+    provider: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    custom_url: str | None = None,
+) -> AgentConfig:
     from aegisx_agent.core.config import AgentConfig, LLMProvider, missing_credentials
     config = AgentConfig()
 
@@ -122,7 +135,13 @@ def _get_config(provider=None, model=None, api_key=None, custom_url=None):
 
     # Override with CLI args
     if provider:
-        config.llm_provider = provider
+        try:
+            config.llm_provider = LLMProvider(provider.lower())
+        except ValueError as exc:
+            options = ", ".join(option.value for option in LLMProvider)
+            raise typer.BadParameter(
+                f"unknown provider '{provider}'. Choose one of: {options}"
+            ) from exc
     if model:
         match config.llm_provider.value:
             case "openai":
@@ -164,7 +183,7 @@ def _get_config(provider=None, model=None, api_key=None, custom_url=None):
     return config
 
 
-def _apply_permission_mode(config, mode: str | None) -> None:
+def _apply_permission_mode(config: AgentConfig, mode: str | None) -> None:
     """Apply a ``--permission-mode`` flag value, rejecting unknown names."""
     if not mode:
         return
@@ -179,7 +198,7 @@ def _apply_permission_mode(config, mode: str | None) -> None:
         ) from exc
 
 
-def _get_agent(config=None):
+def _get_agent(config: AgentConfig | None = None) -> AegisXAgent:
     global _agent
     if _agent is None:
         from aegisx_agent.core import AegisXAgent
@@ -206,7 +225,7 @@ def _get_agent(config=None):
     return _agent
 
 
-def _run_setup_wizard(config):
+def _run_setup_wizard(config: AgentConfig) -> AgentConfig:
     """Interactive setup wizard for first-time users."""
     from aegisx_agent.core.config import LLMProvider
 
@@ -270,7 +289,7 @@ def _run_setup_wizard(config):
     return config
 
 
-async def _permission_prompt(request) -> bool:
+async def _permission_prompt(request: PermissionRequest) -> bool:
     """Ask the operator to approve one dangerous tool call.
 
     Runs inside the agent loop's event loop; ``Prompt.ask`` blocks the loop,
@@ -537,7 +556,7 @@ def chat(
         "--permission-mode",
         help="Tool permission mode: allow-all, ask (default), read-only",
     ),
-):
+) -> None:
     """Start interactive chat session."""
     config = _get_config(provider, model, api_key, custom_url)
     _apply_permission_mode(config, permission_mode)
@@ -558,7 +577,7 @@ def plan(
         "--permission-mode",
         help="Tool permission mode: allow-all, ask (default), read-only",
     ),
-):
+) -> None:
     """Create a plan and execute it step by step."""
     config = _get_config(provider, model)
     _apply_permission_mode(config, permission_mode)
@@ -627,7 +646,7 @@ def run(
 
 
 @app.command()
-def tools():
+def tools() -> None:
     """List available tools and their risk level."""
     _print_tools_table(_get_agent())
 
@@ -703,7 +722,7 @@ def rag_search(
 
 
 @app.command()
-def personas():
+def personas() -> None:
     """List available personas."""
     agent = _get_agent()
     table = Table(title="🎭 Personas", border_style="magenta")
@@ -715,7 +734,7 @@ def personas():
 
 
 @app.command()
-def config_info():
+def config_info() -> None:
     """Show current configuration."""
     from aegisx_agent.core.config import AgentConfig
     config = AgentConfig()
@@ -741,7 +760,7 @@ def main(
         "--permission-mode",
         help="Tool permission mode: allow-all, ask (default), read-only",
     ),
-):
+) -> None:
     """🤖 AegisX Agent — Super-powered Agentic AI with /commands."""
     if ctx.invoked_subcommand is None:
         ctx.invoke(
