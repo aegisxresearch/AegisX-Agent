@@ -235,11 +235,12 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         return [self.register_plugin(definition) for definition in definitions]
 
     def unload_plugin(self, plugin_id: str) -> bool:
-        """Unload a plugin and remove its tool from the registry."""
-        definition = self.plugin_registry.unregister(plugin_id)
-        if definition is None:
+        """Unload a plugin and remove every tool it brought from the registry."""
+        definitions = self.plugin_registry.unregister(plugin_id)
+        if definitions is None:
             return False
-        self.tools.unregister(definition.manifest.qualified_tool_name)
+        for definition in definitions:
+            self.tools.unregister(definition.manifest.qualified_tool_name)
         return True
 
     def _init_rag(self) -> None:

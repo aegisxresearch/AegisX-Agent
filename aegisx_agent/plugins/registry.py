@@ -38,35 +38,50 @@ class PluginTool(FunctionTool):
 
 
 class PluginRegistry:
-    """Load and validate plugins, then register them in a tool registry."""
+    """Load and validate plugins, then register them in a tool registry.
+
+    A plugin may expose **several tools** under one ``plugin_id`` (a GitHub
+    plugin with ``repo_info`` and ``list_issues``, say). All definitions of a
+    plugin share its version lock: they load together, and unloading the
+    ``plugin_id`` removes every tool it brought.
+    """
 
     def __init__(self) -> None:
-        self._definitions: dict[str, PluginDefinition] = {}
+        self._definitions: dict[str, list[PluginDefinition]] = {}
 
     def register(self, definition: PluginDefinition) -> PluginTool:
-        """Validate and register a definition, replacing the same plugin version."""
+        """Validate and register one definition, grouped under its plugin_id."""
         definition.validate()
         plugin_id = definition.manifest.plugin_id
+        version = definition.manifest.version
         existing = self._definitions.get(plugin_id)
-        if existing and existing.manifest.version != definition.manifest.version:
+        if existing and existing[0].manifest.version != version:
             raise PluginError(
                 f"Plugin '{plugin_id}' is already loaded at version "
-                f"{existing.manifest.version}; unload it before changing versions."
+                f"{existing[0].manifest.version}; unload it before changing versions."
             )
-        self._definitions[plugin_id] = definition
+        if not any(
+            item.manifest.qualified_tool_name == definition.manifest.qualified_tool_name
+            for item in (existing or [])
+        ):
+            self._definitions.setdefault(plugin_id, []).append(definition)
         return PluginTool(definition)
 
-    def unregister(self, plugin_id: str) -> PluginDefinition | None:
-        """Remove and return a loaded plugin definition."""
+    def unregister(self, plugin_id: str) -> list[PluginDefinition] | None:
+        """Remove and return every definition of a plugin."""
         return self._definitions.pop(plugin_id, None)
 
-    def get(self, plugin_id: str) -> PluginDefinition | None:
-        """Get a loaded plugin definition by ID."""
+    def get(self, plugin_id: str) -> list[PluginDefinition] | None:
+        """Get every loaded definition of a plugin by ID."""
         return self._definitions.get(plugin_id)
 
     def list_plugins(self) -> list[PluginManifest]:
-        """List loaded manifests in registration order."""
-        return [definition.manifest for definition in self._definitions.values()]
+        """List loaded manifests in registration order (one per tool)."""
+        return [
+            definition.manifest
+            for definitions in self._definitions.values()
+            for definition in definitions
+        ]
 
     def load_module(self, module: str | ModuleType) -> list[PluginDefinition]:
         """Load ``PluginDefinition`` values exported by a module.
@@ -92,12 +107,13 @@ class PluginRegistry:
         return self._definitions_from_module(module)
 
     def install_into(self, registry: Any) -> list[PluginTool]:
-        """Register all loaded plugins in an existing ``ToolRegistry``."""
+        """Register every loaded definition as a tool in an existing registry."""
         tools = []
-        for definition in self._definitions.values():
-            tool = PluginTool(definition)
-            registry.register(tool)
-            tools.append(tool)
+        for definitions in self._definitions.values():
+            for definition in definitions:
+                tool = PluginTool(definition)
+                registry.register(tool)
+                tools.append(tool)
         return tools
 
     @staticmethod

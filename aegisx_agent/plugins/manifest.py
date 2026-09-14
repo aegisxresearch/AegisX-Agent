@@ -54,6 +54,16 @@ class PluginManifest:
     permission: PluginPermissionPolicy = field(default_factory=PluginPermissionPolicy)
     api_version: str = PLUGIN_API_VERSION
 
+    def __post_init__(self) -> None:
+        """Accept ``risk="safe"`` spellings but always store a ``ToolRisk``.
+
+        Without this coercion a plain-string risk flows into the permission
+        gate, which calls ``risk.value`` and crashes the agent loop on the
+        plugin's first execution.
+        """
+        if not isinstance(self.risk, ToolRisk):
+            object.__setattr__(self, "risk", ToolRisk(self.risk))
+
     @property
     def qualified_tool_name(self) -> str:
         """Stable tool name that prevents collisions between plugins."""

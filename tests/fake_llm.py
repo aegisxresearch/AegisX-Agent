@@ -295,6 +295,10 @@ class FakeLLMServer:
                 if "sse" in entry:
                     body = entry["sse"]
                     content_type = "text/event-stream"
+                elif "raw" in entry:
+                    # Exact bytes for non-JSON payloads (HTML pages, plain text).
+                    body = entry["raw"]
+                    content_type = entry.get("content_type", "text/plain")
                 else:
                     # A scripted entry is either an envelope (``status``/``body``)
                     # or a bare response body such as an OpenAI completion.
@@ -321,6 +325,7 @@ class FakeLLMServer:
 
             def do_GET(self) -> None:
                 server.get_requests.append(self.path)
+                server.headers_seen.append(dict(self.headers.items()))
                 self._respond(server._get_entry(self.path))
 
         return Handler
