@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Built-in plugins: browser, GitHub, database.** Three opt-in plugins ship
+  under `aegisx_agent/plugins/builtin/`: `browser` (fetch pages as text, SSRF
+  guard against private hosts, `AEGISX_ALLOW_PRIVATE_HTTP` opt-out), `github`
+  (REST calls with optional `AEGISX_GITHUB_TOKEN`), and `database` (read-only
+  SELECT against a SQLite file, row-capped). Loaded explicitly via
+  `agent.load_plugin_module(...)` or `builtin.all` for everything at once; all
+  three declare risk `caution` and pass the normal permission gate.
+- **Multi-tool plugins.** A plugin module can now register several tools under
+  one `plugin_id`; previously the second definition silently overwrote the
+  first.
+- **Strict mypy in CI.** A dedicated `typecheck` job runs
+  `mypy aegisx_agent` under `strict = true` on every push/PR, matching the
+  local gate. The entire package now type-checks clean under strict mode.
+
 ### Fixed
 
 - **`aegisx plan` crashed on every invocation.** The planning prompt template

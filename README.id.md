@@ -295,6 +295,7 @@ butuhkan sudah terpasang secara bawaan.
 uv venv --python 3.11 .venv
 uv pip install -e ".[dev]"
 .venv/bin/python -m pytest --cov=aegisx_agent   # gerbang coverage dipaksa
+.venv/bin/python -m mypy aegisx_agent           # typecheck ketat (gerbang yang sama dengan CI)
 ```
 
 Suite-nya mencakup loop agentic (pencocokan id panggilan tool, penahanan
@@ -343,6 +344,30 @@ plugin tidak dijalankan hanya karena AegisX diimpor. Semua plugin tetap melewati
 registri tool dan gerbang izin. Tugas scheduler menyimpan checkpoint, melanjutkan
 eksekusi setelah restart, mendukung pembatalan/resume, exponential backoff, dan
 pause otomatis setelah kegagalan identik berulang.
+
+### Plugin bawaan
+
+Tiga plugin opsional disertakan dalam paket dan dimuat dengan cara eksplisit
+yang sama — mengimpor AegisX tidak pernah mengaktifkannya:
+
+```python
+agent.load_plugin_module("aegisx_agent.plugins.builtin.browser")   # read_page, http_get
+agent.load_plugin_module("aegisx_agent.plugins.builtin.github")    # gh_api, list_issues, get_file
+agent.load_plugin_module("aegisx_agent.plugins.builtin.database")  # sql_query (SELECT saja)
+agent.load_plugin_module("aegisx_agent.plugins.builtin.all")       # semuanya di atas
+```
+
+- **browser** — ambil halaman web sebagai teks polos, atau panggil API JSON.
+  Permintaan ke host private/loopback ditolak kecuali
+  `AEGISX_ALLOW_PRIVATE_HTTP=1` (penjaga SSRF); risiko `caution`.
+- **github** — panggil GitHub REST API (repo, issue, file) dengan token opsional
+dari `AEGISX_GITHUB_TOKEN`; risiko `caution`.
+- **database** — jalankan kueri **read-only** `SELECT`/`WITH` ke file SQLite
+  (`AEGISX_DB_PATH` atau per panggilan), dengan batas baris dan daftar kata
+  yang dilarang; risiko `caution`.
+
+Masing-masing tetap melewati gerbang izin: di mode `read-only` semua panggilan
+jaringan/database ditolak; di mode `ask` operator menyetujuinya.
 
 Lihat [dokumentasi plugin dan tugas autonomous](docs/plugins-and-autonomous-tasks.md)
 untuk API Python dan detail lifecycle. CLI-nya mengikuti: `aegisx plugin

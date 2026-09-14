@@ -101,5 +101,28 @@ aegisx schedule checkpoint <task-id> # inspect the latest checkpoint
 Inside the chat loop the same operations are available as `/plugin ...` and
 `/schedule cancel|resume|checkpoint ...`.
 
+## Built-in plugins
+
+Three opt-in plugins ship inside the package under
+`aegisx_agent/plugins/builtin/`. They are ordinary plugins — versioned
+manifests, JSON Schemas, gate-checked — just bundled:
+
+| Module | Tools | Behaviour |
+|---|---|---|
+| `builtin.browser` | `read_page`, `http_get` | Fetch pages as readable text or raw JSON. Refuses private/loopback hosts unless `AEGISX_ALLOW_PRIVATE_HTTP=1` (SSRF guard). |
+| `builtin.github` | `gh_api`, `list_issues`, `get_file` | GitHub REST calls with optional `AEGISX_GITHUB_TOKEN`. |
+| `builtin.database` | `sql_query` | Read-only `SELECT`/`WITH` against a SQLite file (`AEGISX_DB_PATH` or per-call), row-capped, keyword denylist. |
+
+```python
+agent.load_plugin_module("aegisx_agent.plugins.builtin.browser")
+agent.load_plugin_module("aegisx_agent.plugins.builtin.github")
+agent.load_plugin_module("aegisx_agent.plugins.builtin.database")
+agent.load_plugin_module("aegisx_agent.plugins.builtin.all")  # convenience: all three
+```
+
+All three declare risk `caution`: permitted in `ask`/`allow-all` modes (with a
+prompt in the former), refused in `read-only`. The `all` convenience module
+registers every bundled plugin at once.
+
 The scheduler remains fail-closed for unattended permission prompts. Plugins and
 scheduled tasks therefore share the same permission and audit infrastructure.

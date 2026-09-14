@@ -292,6 +292,7 @@ is installed by default.
 uv venv --python 3.11 .venv
 uv pip install -e ".[dev]"
 .venv/bin/python -m pytest --cov=aegisx_agent   # enforced coverage gate
+.venv/bin/python -m mypy aegisx_agent           # strict typecheck (same gate as CI)
 ```
 
 The suite covers the agentic loop (tool-call id matching, failure containment,
@@ -340,6 +341,30 @@ they never execute merely because AegisX is imported. Every plugin remains
 behind the normal tool registry and permission gate. Scheduler tasks persist
 checkpoints, recover interrupted runs, support cancellation/resume, use
 exponential retry backoff, and pause after repeated identical failures.
+
+### Built-in plugins
+
+Three opt-in plugins ship with the package and are loaded the same explicit
+way — importing AegisX never activates them:
+
+```python
+agent.load_plugin_module("aegisx_agent.plugins.builtin.browser")   # read_page, http_get
+agent.load_plugin_module("aegisx_agent.plugins.builtin.github")    # gh_api, list_issues, get_file
+agent.load_plugin_module("aegisx_agent.plugins.builtin.database")  # sql_query (read-only SELECT)
+agent.load_plugin_module("aegisx_agent.plugins.builtin.all")       # everything above
+```
+
+- **browser** — fetch a page and read it as plain text, or hit a JSON API.
+  Requests to private/loopback hosts are refused unless
+  `AEGISX_ALLOW_PRIVATE_HTTP=1` (SSRF guard); risk `caution`.
+- **github** — call the GitHub REST API (repos, issues, files) with an optional
+  token from `AEGISX_GITHUB_TOKEN`; risk `caution`.
+- **database** — run **read-only** `SELECT`/`WITH` queries against a SQLite
+  file (`AEGISX_DB_PATH` or per-call), with a row cap and keyword denylist;
+  risk `caution`.
+
+Each one still goes through the permission gate: in `read-only` mode every
+network or database call is refused; in `ask` mode the operator approves it.
 
 See [plugins and autonomous tasks](docs/plugins-and-autonomous-tasks.md) for the
 Python API and lifecycle details. The CLI mirrors it: `aegisx plugin

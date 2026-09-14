@@ -25,6 +25,20 @@ jobs:
       - name: Lint (strict, no auto-fix)
         run: ruff check aegisx_agent tests
 
+  typecheck:
+    name: Mypy (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package with dev extras
+        run: pip install -e ".[dev]"
+      - name: Type-check (strict, matches pyproject [tool.mypy])
+        run: mypy aegisx_agent
+
   test:
     name: Pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
