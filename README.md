@@ -328,7 +328,10 @@ AEGISX_AUDIT_LOG_ENABLED=true
 ```
 aegisx_agent/                 # flat package at the repo root (no src/)
 ├── core/                     # Agent runtime
-│   ├── agent.py              # AegisXAgent orchestrator
+│   ├── agent.py              # AegisXAgent orchestrator and chat/planning
+│   ├── rag_api.py            # RAG ingestion and search API
+│   ├── memory_api.py         # Conversation, fact, and session memory API
+│   ├── scheduler_api.py      # Scheduled-task and scheduler-daemon API
 │   ├── loop.py               # Agentic tool-use loop (streaming + retry)
 │   └── config.py             # Configuration (pydantic-settings)
 ├── cli/                      # Rich terminal CLI
@@ -380,6 +383,7 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 
 ## 📚 Docs
 
+- [Core architecture](docs/core.md) — agent runtime APIs and module boundaries
 - [CLI architecture](docs/cli.md) — how the CLI package is split and its rules
 - [Dokumentasi bahasa Indonesia](README.id.md) — full Indonesian version of this README
 

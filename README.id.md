@@ -331,7 +331,10 @@ AEGISX_AUDIT_LOG_ENABLED=true
 ```
 aegisx_agent/                 # paket flat di root repo (tanpa src/)
 ├── core/                     # Runtime agen
-│   ├── agent.py              # Orkestrator AegisXAgent
+│   ├── agent.py              # Orkestrator AegisXAgent dan chat/perencanaan
+│   ├── rag_api.py            # API ingestion dan pencarian RAG
+│   ├── memory_api.py         # API fakta, percakapan, sesi, dan preferensi
+│   ├── scheduler_api.py      # API tugas terjadwal dan daemon scheduler
 │   ├── loop.py               # Loop tool-use agentic (streaming + retry)
 │   └── config.py             # Konfigurasi (pydantic-settings)
 ├── cli/                      # CLI terminal kaya
@@ -383,6 +386,7 @@ aegisx_agent/                 # paket flat di root repo (tanpa src/)
 
 ## 📚 Dokumentasi
 
+- [Arsitektur core](docs/core.md) — batas modul runtime agen dan API RAG, memori, serta scheduler
 - [Arsitektur CLI](docs/cli.md) — cara paket CLI dipecah dan aturannya
 - [Versi bahasa Inggris](README.md) — README resmi
 

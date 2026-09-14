@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   became `core/` (`agent.py`, `loop.py`, `config.py`). Every submodule keeps a
   focused single responsibility; `config.py` and `agent_loop.py` remain as
   back-compat re-export shims, so existing imports keep working.
+- **Core API dipisah berdasarkan domain.** `core/agent.py` kini mendelegasikan API RAG, memori, dan scheduler ke `rag_api.py`, `memory_api.py`, dan `scheduler_api.py`. Nama method publik dan kompatibilitas import tetap dipertahankan.
 - **One LLM request per streamed turn.** `chat_stream` no longer runs a
   non-streaming probe before streaming: tool calls are parsed from the stream
   itself. A tool-less turn drops from 2 requests to 1; a tool turn from 3 to 2.

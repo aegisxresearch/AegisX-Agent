@@ -9,6 +9,9 @@ from typing import Any
 
 from aegisx_agent.core.config import AgentConfig, missing_credentials
 from aegisx_agent.core.loop import AgenticLoop, AgentTrace
+from aegisx_agent.core.memory_api import MemoryAPI
+from aegisx_agent.core.rag_api import RAGAPI
+from aegisx_agent.core.scheduler_api import SchedulerAPI
 from aegisx_agent.llm.base import LLMProvider, Message, Role
 from aegisx_agent.llm.factory import create_llm_provider
 from aegisx_agent.memory.advanced import PromptMemory, SessionStore, UserModel
@@ -31,7 +34,7 @@ from aegisx_agent.tools.skill_tool import SkillTool
 from aegisx_agent.tools.web_search import WebSearchTool
 
 
-class AegisXAgent:
+class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
     """Super-powered Agentic AI.
 
     Supports any LLM provider, tool calling, RAG, memory, planning,
@@ -469,38 +472,6 @@ class AegisXAgent:
         plan.status = "completed"
         return plan
 
-    # === Public API for RAG ===
-    async def ingest_document(self, file_path: str) -> int:
-        """Ingest a document into the knowledge base."""
-        if not self._rag_engine:
-            raise RuntimeError("RAG is disabled. Enable it in config.")
-        return await self._rag_engine.ingest_file(file_path)
-
-    async def ingest_text(self, text: str, source: str = "user_input") -> int:
-        """Ingest raw text into the knowledge base."""
-        if not self._rag_engine:
-            raise RuntimeError("RAG is disabled. Enable it in config.")
-        return await self._rag_engine.ingest_text(text, source=source)
-
-    async def search_knowledge(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
-        """Search the knowledge base."""
-        if not self._rag_engine:
-            raise RuntimeError("RAG is disabled. Enable it in config.")
-        return await self._rag_engine.search(query, top_k=top_k)
-
-    # === Public API for Memory ===
-    def remember(self, category: str, fact: str) -> None:
-        """Store a fact in long-term memory."""
-        self.long_term.store(category, fact)
-
-    def recall(self, query: str) -> list[dict[str, str]]:
-        """Search long-term memory."""
-        return self.long_term.search(query)
-
-    def clear_memory(self) -> None:
-        """Clear conversation history."""
-        self.conversation.clear()
-
     # === Public API for Tools ===
     def list_tools(self) -> list[str]:
         """List available tool names."""
@@ -642,68 +613,4 @@ class AegisXAgent:
         except Exception as exc:  # noqa: BLE001 - never break a chat because of skill capture
             self.last_skill_error = f"{type(exc).__name__}: {exc}"
 
-    # === Public API for Sessions ===
-    def search_sessions(self, query: str) -> list[dict[str, Any]]:
-        """Search past sessions."""
-        return self.session_store.search(query)
-
-    def get_session_stats(self) -> dict[str, Any]:
-        """Get session statistics."""
-        return self.session_store.get_stats()
-
-    def learn_preference(self, key: str, value: str) -> None:
-        """Teach the agent a preference."""
-        self.user_model.learn_preference(key, value)
-        self.prompt_memory.add_user_info(f"{key}: {value}")
-
-    # === Public API for Scheduler ===
-    def add_scheduled_task(
-        self,
-        name: str,
-        prompt: str,
-        schedule_type: str,
-        schedule_value: str,
-        persona: str = "default",
-        timeout: int = 120,
-    ) -> dict[str, str]:
-        """Add a scheduled task."""
-        task = self.scheduler.add_task(
-            name=name,
-            prompt=prompt,
-            schedule_type=schedule_type,
-            schedule_value=schedule_value,
-            persona=persona,
-            timeout=timeout,
-        )
-        return task.to_dict()
-
-    def remove_scheduled_task(self, task_id: str) -> bool:
-        """Remove a scheduled task."""
-        return self.scheduler.remove_task(task_id)
-
-    def list_scheduled_tasks(self) -> list[dict[str, Any]]:
-        """List all scheduled tasks."""
-        return [t.to_dict() for t in self.scheduler.list_tasks()]
-
-    def toggle_scheduled_task(self, task_id: str, enabled: bool | None = None) -> bool:
-        """Enable/disable a scheduled task."""
-        return self.scheduler.toggle_task(task_id, enabled)
-
-    def get_scheduled_task_logs(self, task_id: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Get the execution log of a scheduled task."""
-        return self.scheduler.get_logs(task_id, limit=limit)
-
-    async def run_scheduled_task_now(self, task_id: str) -> str:
-        """Run a scheduled task immediately."""
-        task = self.scheduler.get_task(task_id)
-        if not task:
-            return f"Task {task_id} not found"
-        return await self.scheduler.run_task(task)
-
-    async def run_due_scheduled_tasks(self) -> list[dict[str, Any]]:
-        """Run all due scheduled tasks."""
-        return await self.scheduler.run_due_tasks()
-
-    async def start_scheduler(self, check_interval: int = 60) -> None:
-        """Start the background scheduler loop."""
-        await self.scheduler.start_background_loop(check_interval)
+    # === Public API for Skills ===
