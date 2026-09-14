@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Weakest modules covered and a silent-error bug fixed.** New suites drive
+  `CodebaseTool` (8%→94%), `MultiFileEditorTool` (16%→99%),
+  `FileOperationsTool` (18%→95%), `DateTimeTool` (25%→100%), and the
+  `/code` `/git` `/test` handlers (10%→100%) against real files and stub
+  agents. Testing the handlers exposed that tool errors were printed as empty
+  output; `/code`, `/git`, and `/test` now surface tool errors visibly.
+- **Plugin end-to-end tests.** Four integration tests round-trip a plugin call
+  through the real agentic loop over HTTP (fake OpenAI-compatible server):
+  schema offering, execution via the registry and gate, mid-loop denial in
+  read-only mode, unloading, and loading from a Python file.
+- **Coverage gate raised 66% → 77%** (measured 77.57%; 415 tests).
 - **Flat, modular package layout.** `aegisx_agent/` now lives at the repo root
   (no `src/` nesting) and the two monolith files are split by concern:
   `cli.py` (1,472 lines) became a `cli/` package and `core.py` (709 lines)
