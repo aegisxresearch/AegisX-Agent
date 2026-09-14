@@ -11,7 +11,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fake_llm import FakeLLMServer, openai_text_response, openai_tool_call_response
+from fake_llm import (
+    FakeLLMServer,
+    openai_text_response,
+    openai_tool_call_response,
+    sse_text,
+    sse_tool_call,
+)
 from support import run
 
 from aegisx_agent.config import AgentConfig, LLMProvider
@@ -102,6 +108,39 @@ def test_child_tools_are_restricted_and_gate_enforced(fake_llm, tmp_path) -> Non
     }
     assert "spawn_subagent" in called_names
     assert "calculator" in called_names
+
+
+async def _collect(stream) -> list[str]:
+    chunks: list[str] = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return chunks
+
+
+def test_streaming_turn_surfaces_subagent_progress_and_cost(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path)
+
+    # Parent turns stream (SSE); the child's loop is non-streaming (JSON).
+    fake_llm.script(
+        sse_tool_call(
+            "call_1", "spawn_subagent", '{"task": "compute 2+2", "tools": "calculator"}'
+        ),
+        openai_tool_call_response("call_2", "calculator", '{"expression": "2+2"}'),
+        openai_text_response("child: 4"),
+        sse_text(["The answer is 4."]),
+    )
+
+    chunks = run(_collect(agent.chat_stream("delegate a calculation")))
+    text = "".join(chunks)
+
+    # Start line, per-step calls, and the cost line all reached the stream.
+    assert "subagent (depth 1, budget 8): compute 2+2" in text
+    assert "subagent step: calculator \u2705" in text
+    assert "subagent (depth 1) done:" in text
+    assert "tokens" in text
+    # The child's own answer travels as tool-result data (not stream text);
+    # the parent's wrap-up is what streams to the user.
+    assert "The answer is 4." in text
 
 
 def test_budget_exhaustion_is_visible_to_the_parent(fake_llm, tmp_path) -> None:

@@ -471,6 +471,20 @@ AEGISX_SUBAGENT_ENABLED=true     # set false untuk menghapus tool ini
 Token anak dicatat oleh usage tracker dengan run id yang sama dengan induk,
 sehingga `aegisx usage` melaporkan biaya penuh tugas yang didelegasikan.
 
+**Telemetri langsung.** Saat streaming (`aegisx chat`), delegasi mencetak
+kemajuannya secara langsung — baris mulai, setiap pemanggilan tool anak, dan
+baris biaya — sehingga subagen yang berjalan lama tidak terlihat seperti
+hang:
+
+```text
+⏵ subagent (depth 1, budget 8): compute 2+2
+  ⏳ subagent step: calculator ✅
+⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s
+🔧 spawn_subagent: ✅
+```
+
+Delegasi bersarang melaporkan event bertanda kedalaman ke stream yang sama.
+
 ## 🏗️ Arsitektur
 
 ```

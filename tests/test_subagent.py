@@ -250,6 +250,85 @@ def test_nested_child_registry_only_narrows() -> None:
     assert note == ""
 
 
+def test_progress_hook_receives_start_steps_and_cost_events() -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    llm = ScriptedLLM(
+        [
+            _tool_call("c1", "echo", '{"text": "hi"}'),
+            _text("child final answer"),
+        ]
+    )
+    events: list[str] = []
+    tool = _tool(llm, registry, on_progress=events.append)
+
+    result = run(tool.execute(task="say hi", tools="echo"))
+
+    assert result.is_success
+    assert len(events) == 3
+    assert events[0].startswith("⏵ subagent (depth 1, budget 4): say hi")
+    assert events[1] == "  ⏳ subagent step: echo ✅"
+    assert events[2] == "⏵ subagent (depth 1) done: 1 tool calls, 9 tokens, 0.0s"
+
+
+def test_progress_hook_reports_failures_timeouts_and_swallows_observer_errors() -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+
+    # A failing child call must surface as ❌.
+    failing = ScriptedLLM(
+        [
+            _tool_call("c1", "ghost", "{}"),
+            _text("recovered anyway"),
+        ]
+    )
+    failing_events: list[str] = []
+    tool = _tool(failing, registry, on_progress=failing_events.append)
+    run(tool.execute(task="t", tools="echo"))
+    assert "  ⏳ subagent step: ghost ❌" in failing_events
+
+    # A broken observer must never break the run.
+    def _exploding(event: str) -> None:
+        raise RuntimeError("observer kaboom")
+
+    llm = ScriptedLLM([_text("still fine")])
+    tool = _tool(llm, registry, on_progress=_exploding)
+    result = run(tool.execute(task="t"))
+    assert result.is_success
+
+    # A timeout emits its own event.
+    timeout_events: list[str] = []
+    slow = _tool(SlowLLM(), registry, on_progress=timeout_events.append, timeout=0.05)
+    run(slow.execute(task="hang"))
+    assert timeout_events[-1].startswith("  ⏹ subagent (depth 1) timed out after 0.05s")
+
+
+def test_nested_spawner_inherits_the_progress_hook() -> None:
+    registry = ToolRegistry()
+    llm = ScriptedLLM([_text("leaf")])
+    events: list[str] = []
+    tool = _tool(llm, registry, max_depth=2, on_progress=events.append)
+
+    child_registry = tool._child_registry([])
+    nested = child_registry.get("spawn_subagent")
+    assert isinstance(nested, SubagentTool)
+    assert nested._on_progress is tool._on_progress
+
+    # Events from a nested run carry the deeper depth tag.
+    run(nested.execute(task="grandchild job"))
+    assert any("depth 2" in event for event in events)
+
+
+def test_no_hook_means_no_events_and_plain_runs_stay_quiet() -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    llm = ScriptedLLM([_text("quiet")])
+    tool = _tool(llm, registry)
+
+    result = run(tool.execute(task="t", tools="echo"))
+    assert result.is_success  # would raise if _emit touched a missing hook
+
+
 def test_spawn_tool_schema_and_constructor_validation() -> None:
     registry = ToolRegistry()
     tool = _tool(ScriptedLLM([_text("x")]), registry)

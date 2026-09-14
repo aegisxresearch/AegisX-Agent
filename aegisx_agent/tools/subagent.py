@@ -93,6 +93,7 @@ class SubagentTool(Tool):
         depth: int = 1,
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        on_progress: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(
             name="spawn_subagent",
@@ -130,6 +131,7 @@ class SubagentTool(Tool):
         self._llm_factory = llm_factory
         self._parent_registry = parent_registry
         self._gate = gate
+        self._on_progress = on_progress
         self.max_steps = max_steps
         self.max_depth = max_depth
         self.timeout = timeout
@@ -182,7 +184,9 @@ class SubagentTool(Tool):
                     registry.register(tool)
 
         # A child under the depth cap can delegate further — its spawner is
-        # bound to the *child* registry, so nesting only ever narrows.
+        # bound to the *child* registry, so nesting only ever narrows. The
+        # progress hook flows down too: nested delegations report depth-tagged
+        # events to the same observer.
         if self.depth < self.max_depth:
             registry.register(
                 SubagentTool(
@@ -195,11 +199,20 @@ class SubagentTool(Tool):
                     depth=self.depth + 1,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
+                    on_progress=self._on_progress,
                 )
             )
         return registry
 
     # === Execution ====================================================== #
+
+    def _emit(self, event: str) -> None:
+        """Forward one progress line to the observer, if there is one."""
+        if self._on_progress is not None:
+            try:
+                self._on_progress(event)
+            except Exception:  # noqa: BLE001 - telemetry must never break a run
+                pass
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         task = str(kwargs.get("task") or "").strip()
@@ -228,13 +241,29 @@ class SubagentTool(Tool):
         )
         messages = [Message(role=Role.USER, content=task)]
 
+        self._emit(
+            f"⏵ subagent (depth {self.depth}, budget {self.max_steps}): {task[:80]}"
+        )
+
+        def _on_child_tool(name: str, success: bool) -> None:
+            self._emit(
+                f"  ⏳ subagent step: {name} {'✅' if success else '❌'}"
+            )
+
         started = time.monotonic()
         try:
             answer, trace = await asyncio.wait_for(
-                loop.run(messages=messages, system_prompt=system_prompt),
+                loop.run(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    on_tool_result=_on_child_tool,
+                ),
                 timeout=self.timeout,
             )
         except asyncio.TimeoutError:
+            self._emit(
+                f"  ⏹ subagent (depth {self.depth}) timed out after {self.timeout:g}s"
+            )
             return ToolResult(
                 status=ToolStatus.TIMEOUT,
                 output="",
@@ -251,6 +280,13 @@ class SubagentTool(Tool):
         duration = time.monotonic() - started
         budget_exhausted = trace.total_tool_calls >= self.max_steps
         final = answer.strip() or "Subagent produced no answer."
+
+        cost = (
+            f"⏵ subagent (depth {self.depth}) done: "
+            f"{trace.total_tool_calls} tool calls, "
+            f"{trace.total_tokens} tokens, {duration:.1f}s"
+        )
+        self._emit(cost)
 
         if note:
             final = f"[subagent note: {note}]\n{final}"

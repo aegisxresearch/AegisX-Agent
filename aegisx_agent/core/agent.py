@@ -34,6 +34,7 @@ from aegisx_agent.tools.file_ops import FileOperationsTool
 from aegisx_agent.tools.rag_search import RAGSearchTool
 from aegisx_agent.tools.registry import ToolRegistry
 from aegisx_agent.tools.skill_tool import SkillTool
+from aegisx_agent.tools.subagent import SubagentTool
 from aegisx_agent.tools.web_search import WebSearchTool
 
 
@@ -237,8 +238,6 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
         # Subagent delegation (last, so it can see the full parent tool set)
         if self.config.subagent_enabled:
-            from aegisx_agent.tools.subagent import SubagentTool
-
             self.tools.register(
                 SubagentTool(
                     llm_factory=lambda: self.llm,
@@ -460,6 +459,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         tool_schemas = self.tools.list_schemas() or None
 
         queue: asyncio.Queue[str | None] = asyncio.Queue()
+        subagent = self.tools.get("spawn_subagent")
 
         async def _drive() -> None:
             def _on_chunk(piece: str) -> None:
@@ -467,6 +467,13 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
             def _on_tool_result(name: str, success: bool) -> None:
                 queue.put_nowait(f"\n🔧 {name}: {'✅' if success else '❌'}\n")
+
+            def _on_subagent_progress(event: str) -> None:
+                # Subagent telemetry: start line, per-step calls, cost line.
+                queue.put_nowait(f"\n{event}\n")
+
+            if isinstance(subagent, SubagentTool):
+                subagent._on_progress = _on_subagent_progress
 
             try:
                 response, trace = await self.agent_loop.run_streaming(
@@ -477,6 +484,8 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                     on_tool_result=_on_tool_result,
                 )
             finally:
+                if isinstance(subagent, SubagentTool):
+                    subagent._on_progress = None
                 queue.put_nowait(None)
 
             # The loop only reaches here on a completed turn, so the same

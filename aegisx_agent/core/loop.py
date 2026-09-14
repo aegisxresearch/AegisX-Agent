@@ -155,14 +155,20 @@ class AgenticLoop:
         messages: list[Message],
         system_prompt: str,
         tool_schemas: list[dict[str, Any]] | None = None,
+        on_tool_result: Any = None,
     ) -> tuple[str, AgentTrace]:
-        """Run the agentic loop. Returns (final_response, trace)."""
+        """Run the agentic loop. Returns (final_response, trace).
+
+        ``on_tool_result(name, success)`` fires after each tool execution, so
+        non-streaming callers (subagents, scheduled runs) can observe progress
+        the same way streaming UIs do.
+        """
         return await self._run(
             messages,
             system_prompt,
             tool_schemas,
             on_chunk=None,
-            on_tool_result=None,
+            on_tool_result=on_tool_result,
             use_stream=False,
         )
 

@@ -481,6 +481,19 @@ AEGISX_SUBAGENT_ENABLED=true     # set false to remove the tool entirely
 Child tokens are recorded by the usage tracker under the same run id as the
 parent's, so `aegisx usage` reports the full cost of a delegated task.
 
+**Live telemetry.** While streaming (`aegisx chat`), a delegation prints its
+progress as it happens — start line, each child tool call, and a cost line —
+so a long subagent never looks like a hang:
+
+```text
+⏵ subagent (depth 1, budget 8): compute 2+2
+  ⏳ subagent step: calculator ✅
+⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s
+🔧 spawn_subagent: ✅
+```
+
+Nested delegations report depth-tagged events to the same stream.
+
 ## 🏗️ Architecture
 
 ```text

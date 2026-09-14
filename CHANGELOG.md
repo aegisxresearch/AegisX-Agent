@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AEGISX_SUBAGENT_MAX_DEPTH`, `AEGISX_SUBAGENT_TIMEOUT`,
   `AEGISX_SUBAGENT_ENABLED`. Child tokens land in the usage log under the
   parent's run id. Covered by 14 unit + end-to-end tests.
+- **Live subagent telemetry.** While streaming, delegations print progress as
+  they happen: a start line (depth, budget, task), one line per child tool
+  call, and a cost line (tool calls, tokens, duration) on completion, plus a
+  distinct line on timeout. `AgenticLoop.run` now accepts an
+  `on_tool_result` callback so non-streaming child loops can report progress;
+  nested delegations forward depth-tagged events to the same observer, and a
+  broken observer can never break a run.
 - **MCP client support (Model Context Protocol).** AegisX can now consume
   tools from any MCP server over stdio via the official `mcp` SDK
   (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:
