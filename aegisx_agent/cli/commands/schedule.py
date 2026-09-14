@@ -20,6 +20,9 @@ SCHEDULE_USAGE = (
     "  /schedule list                                — show tasks\n"
     "  /schedule run                                 — execute everything due now\n"
     "  /schedule logs <task-id>                      — show run history\n"
+    "  /schedule cancel <task-id>                    — pause a task now\n"
+    "  /schedule resume <task-id>                    — resume from checkpoint\n"
+    "  /schedule checkpoint <task-id>                — show latest checkpoint\n"
     "  /schedule remove <task-id>                    — delete a task"
 )
 
@@ -181,6 +184,40 @@ def _handle_schedule_command(args: str, agent):
                 console.print("[dim]Usage: /schedule logs <task-id>[/dim]")
                 return
             _print_schedule_logs(agent, rest.strip())
+
+        case "cancel":
+            if not rest.strip():
+                console.print("[dim]Usage: /schedule cancel <task-id>[/dim]")
+                return
+            if agent.request_scheduler_cancel(rest.strip()):
+                task_id = rest.strip()
+                console.print(f"[warning]⏸️  Cancel requested — task {task_id} paused[/warning]")
+            else:
+                console.print(f"[error]Task not found: {rest.strip()}[/error]")
+
+        case "resume":
+            if not rest.strip():
+                console.print("[dim]Usage: /schedule resume <task-id>[/dim]")
+                return
+            if agent.resume_scheduled_task(rest.strip()):
+                console.print(f"[success]▶️  Resumed task {rest.strip()}[/success]")
+            else:
+                console.print(f"[error]Task not found: {rest.strip()}[/error]")
+
+        case "checkpoint":
+            if not rest.strip():
+                console.print("[dim]Usage: /schedule checkpoint <task-id>[/dim]")
+                return
+            checkpoint = agent.get_scheduler_checkpoint(rest.strip())
+            if checkpoint is None:
+                console.print(f"[error]Task not found: {rest.strip()}[/error]")
+                return
+            table = Table(title=f"📍 Checkpoint {rest.strip()}", border_style="cyan")
+            table.add_column("Field", style="bold")
+            table.add_column("Value", max_width=70)
+            for key, value in checkpoint.items():
+                table.add_row(key, str(value)[:120])
+            console.print(table)
 
         case "remove" | "rm":
             if not rest.strip():

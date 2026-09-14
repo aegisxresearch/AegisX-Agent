@@ -22,6 +22,10 @@ from aegisx_agent.cli.commands.permissions import (  # noqa: F401 — re-exporte
     _handle_permissions_command,
     _print_tools_table,
 )
+from aegisx_agent.cli.commands.plugins import (  # noqa: F401 — re-exported for tests
+    _handle_plugin_command,
+    _print_plugins_table,
+)
 from aegisx_agent.cli.commands.schedule import (  # noqa: F401 — re-exported for tests
     _flags_to_schedule,
     _handle_schedule_command,
@@ -383,6 +387,46 @@ def schedule_logs(
     _print_schedule_logs(_get_agent(_get_config()), task_id, limit)
 
 
+@schedule_app.command("cancel")
+def schedule_cancel(task_id: str = typer.Argument(..., help="Task id")) -> None:
+    """Cancel a task now; an active run is interrupted and the task is paused."""
+    agent = _get_agent(_get_config())
+    if not agent.request_scheduler_cancel(task_id):
+        console.print(f"[error]Task not found: {task_id}[/error]")
+        raise typer.Exit(code=1)
+    console.print(
+        f"[warning]⏸️  Cancel requested for task {task_id} — paused at next checkpoint[/warning]"
+    )
+
+
+@schedule_app.command("resume")
+def schedule_resume(task_id: str = typer.Argument(..., help="Task id")) -> None:
+    """Resume a paused task from its persisted checkpoint."""
+    agent = _get_agent(_get_config())
+    if not agent.resume_scheduled_task(task_id):
+        console.print(f"[error]Task not found: {task_id}[/error]")
+        raise typer.Exit(code=1)
+    checkpoint = agent.get_scheduler_checkpoint(task_id) or {}
+    console.print(f"[success]▶️  Resumed task {task_id}[/success]")
+    console.print(f"[dim]Checkpoint state: {checkpoint.get('state', 'unknown')}[/dim]")
+
+
+@schedule_app.command("checkpoint")
+def schedule_checkpoint(task_id: str = typer.Argument(..., help="Task id")) -> None:
+    """Show the latest persisted checkpoint of a task."""
+    agent = _get_agent(_get_config())
+    checkpoint = agent.get_scheduler_checkpoint(task_id)
+    if checkpoint is None:
+        console.print(f"[error]Task not found: {task_id}[/error]")
+        raise typer.Exit(code=1)
+    table = Table(title=f"📍 Checkpoint {task_id}", border_style="cyan")
+    table.add_column("Field", style="bold")
+    table.add_column("Value", max_width=70)
+    for key, value in checkpoint.items():
+        table.add_row(key, str(value)[:120])
+    console.print(table)
+
+
 @schedule_app.command("run")
 def schedule_run(
     once: bool = typer.Option(False, "--once", help="Run everything due once, then exit"),
@@ -427,12 +471,53 @@ app.add_typer(schedule_app, name="schedule")
 
 
 # ═══════════════════════════════════════════════════
-#  WORKSPACE
+#  PLUGIN TYPER COMMANDS (aegisx plugin ...)
 # ═══════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════
+plugin_app = typer.Typer(help="🧩 Manage explicitly loaded tool plugins")
 
-app.add_typer(schedule_app, name="schedule")
+
+@plugin_app.command("list")
+def plugin_list() -> None:
+    """List loaded plugins with the permission gate's verdict for each."""
+    agent = _get_agent(_get_config())
+    _print_plugins_table(agent)
+
+
+@plugin_app.command("load")
+def plugin_load(
+    source: str = typer.Argument(..., help="Module path (pkg.mod) or path to a .py file"),
+) -> None:
+    """Load plugin definitions from a module or an explicit Python file."""
+    agent = _get_agent(_get_config())
+    loader = agent.load_plugin_path if source.endswith(".py") else agent.load_plugin_module
+    try:
+        names = loader(source)
+    except Exception as exc:
+        console.print(f"[error]Plugin load failed: {type(exc).__name__}: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[success]✅ Loaded {len(names)} plugin(s) from {source}[/success]")
+    for name in names:
+        console.print(f"[dim]  • {name}[/dim]")
+    _print_plugins_table(agent)
+
+
+@plugin_app.command("unload")
+def plugin_unload(
+    plugin_id: str = typer.Argument(..., help="The plugin_id of a loaded plugin"),
+) -> None:
+    """Unload a plugin and remove its tool from the registry."""
+    agent = _get_agent(_get_config())
+    if not agent.unload_plugin(plugin_id):
+        console.print(f"[error]No loaded plugin: {plugin_id}[/error]")
+        loaded = [m.plugin_id for m in agent.plugin_registry.list_plugins()]
+        if loaded:
+            console.print(f"[dim]Loaded: {', '.join(loaded)}[/dim]")
+        raise typer.Exit(code=1)
+    console.print(f"[success]✅ Unloaded plugin '{plugin_id}'[/success]")
+
+
+app.add_typer(plugin_app, name="plugin")
 
 
 # ═══════════════════════════════════════════════════

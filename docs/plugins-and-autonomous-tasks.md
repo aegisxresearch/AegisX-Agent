@@ -79,5 +79,27 @@ Lifecycle guarantees:
 - repeated identical failures are detected by fingerprint and pause the task;
 - paused tasks resume explicitly, never silently.
 
+## CLI surface
+
+The terminal mirrors both APIs. Plugin output is permission-aware: each row
+shows the plugin's risk and what the gate would do under the current mode
+(`allowed`, `asks first`, or `denied`).
+
+```bash
+# Plugins
+aegisx plugin list                 # loaded plugins + gate verdicts
+aegisx plugin load ./my_plugin.py  # load from a Python file
+aegisx plugin load my_pkg.plugins  # load from an importable module
+aegisx plugin unload demo          # unload by plugin_id
+
+# Scheduled tasks
+aegisx schedule cancel <task-id>     # interrupt an active run, pause the task
+aegisx schedule resume <task-id>     # resume from the persisted checkpoint
+aegisx schedule checkpoint <task-id> # inspect the latest checkpoint
+```
+
+Inside the chat loop the same operations are available as `/plugin ...` and
+`/schedule cancel|resume|checkpoint ...`.
+
 The scheduler remains fail-closed for unattended permission prompts. Plugins and
 scheduled tasks therefore share the same permission and audit infrastructure.

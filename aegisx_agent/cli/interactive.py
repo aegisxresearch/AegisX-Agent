@@ -22,6 +22,7 @@ from aegisx_agent.cli.commands.permissions import (
     _handle_permissions_command,
     _print_tools_table,
 )
+from aegisx_agent.cli.commands.plugins import _handle_plugin_command
 from aegisx_agent.cli.commands.schedule import _handle_schedule_command
 
 # ═══════════════════════════════════════════════════
@@ -94,6 +95,7 @@ COMMANDS = {
     "/git":       {"desc": "Git operations (status/diff/commit)", "icon": "📦"},
     "/test":      {"desc": "Run project tests", "icon": "🧪"},
     "/schedule":  {"desc": "Manage & run scheduled tasks", "icon": "⏰"},
+    "/plugin":    {"desc": "List/load/unload tool plugins", "icon": "🧩"},
     "/permissions": {"desc": "Show/change tool permissions", "icon": "🔐"},
     "/sessions":  {"desc": "Session stats & search", "icon": "📊"},
     "/learn":     {"desc": "Teach agent a preference", "icon": "🎓"},
@@ -222,6 +224,10 @@ def _handle_slash_command(cmd: str, agent) -> bool:
 
         case "/schedule":
             _handle_schedule_command(args, agent)
+            return True
+
+        case "/plugin":
+            _handle_plugin_command(args, agent)
             return True
 
         case "/permissions":

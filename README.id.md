@@ -117,7 +117,16 @@ aegisx schedule list      # Tugas, jadwal berikutnya, status terakhir
 aegisx schedule run       # Eksekusi tugas yang jatuh tempo sekarang
 aegisx schedule run --once  # Tembakkan semua yang jatuh tempo lalu keluar
 aegisx schedule logs <id> # Riwayat eksekusi satu tugas
+aegisx schedule cancel <id> # Pause tugas sekarang (menghentikan run aktif)
+aegisx schedule resume <id> # Lanjutkan tugas terpause dari checkpoint
+aegisx schedule checkpoint <id> # Tampilkan checkpoint terakhir tugas
 aegisx schedule remove <id>
+
+# Plugin (dimuat eksplisit, sadar-izin)
+aegisx plugin list         # Plugin termuat + putusan gate untuk masing-masing
+aegisx plugin load ./plugin_saya.py # Muat dari file Python
+aegisx plugin load paket_saya.plugins # Muat dari module yang bisa diimpor
+aegisx plugin unload demo  # Hapus plugin yang termuat
 ```
 
 ## 🔌 Provider yang Didukung
@@ -336,7 +345,10 @@ eksekusi setelah restart, mendukung pembatalan/resume, exponential backoff, dan
 pause otomatis setelah kegagalan identik berulang.
 
 Lihat [dokumentasi plugin dan tugas autonomous](docs/plugins-and-autonomous-tasks.md)
-untuk API Python dan detail lifecycle.
+untuk API Python dan detail lifecycle. CLI-nya mengikuti: `aegisx plugin
+list|load|unload` menampilkan setiap plugin beserta risiko dan putusan gate di
+current mode, sedangkan `aegisx schedule cancel|resume|checkpoint` mengontrol
+tugas tanpa keluar dari terminal.
 
 ## 🏗️ Arsitektur
 

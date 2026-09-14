@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Plugins declare a JSON Schema, risk, and permission policy; the qualified
   tool (`plugin_<id>_<name>`) still passes the global permission gate and
   audit log. Importing AegisX never executes plugin code.
+- **Plugin and schedule CLI.** `aegisx plugin list|load|unload` renders loaded
+  plugins with their risk and the gate's verdict under the current mode;
+  `aegisx schedule cancel|resume|checkpoint` controls autonomous tasks from
+  the terminal (mirrored as `/plugin` and `/schedule` slash commands).
 - **Autonomous task resilience.** Scheduler tasks now persist checkpoints,
   recover runs interrupted by a process restart (`resumed_after_restart`),
   support request-cancel (which interrupts an active run) and explicit

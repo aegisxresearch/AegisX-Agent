@@ -21,6 +21,10 @@ from aegisx_agent.cli.commands.permissions import (
     _handle_permissions_command,
     _print_tools_table,
 )
+from aegisx_agent.cli.commands.plugins import (
+    _handle_plugin_command,
+    _print_plugins_table,
+)
 from aegisx_agent.cli.commands.schedule import (
     _flags_to_schedule,
     _handle_schedule_command,
@@ -59,10 +63,12 @@ __all__ = [
     "_handle_code_command",
     "_handle_git_command",
     "_handle_permissions_command",
+    "_handle_plugin_command",
     "_handle_schedule_command",
     "_handle_slash_command",
     "_handle_test_command",
     "_permission_prompt",
+    "_print_plugins_table",
     "_print_schedule_logs",
     "_print_schedule_results",
     "_print_tools_table",

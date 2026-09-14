@@ -39,6 +39,48 @@ def test_schedule_command_is_registered(runner: CliRunner) -> None:
     assert "schedule" in result.output
 
 
+def test_schedule_cancel_resume_and_checkpoint_round_trip(runner: CliRunner) -> None:
+    added = _invoke(runner, "schedule", "add", "greet", "say hi", "--interval", "30m")
+    assert added.exit_code == 0, added.output
+    task_id = _invoke(runner, "schedule", "list").output
+    # The list table renders the id in its first column; grab it from the agent directly.
+    from aegisx_agent.cli import main as cli_module
+
+    agent = cli_module._get_agent()
+    task_id = agent.list_scheduled_tasks()[0]["id"]
+
+    cancelled = _invoke(runner, "schedule", "cancel", task_id)
+    assert cancelled.exit_code == 0, cancelled.output
+    assert "Cancel requested" in cancelled.output
+
+    stored = agent.scheduler.get_task(task_id)
+    assert stored is not None
+    assert stored.cancel_requested is True
+
+    checkpoint = _invoke(runner, "schedule", "checkpoint", task_id)
+    assert checkpoint.exit_code == 0, checkpoint.output
+    assert "cancellation_requested" in checkpoint.output
+
+    resumed = _invoke(runner, "schedule", "resume", task_id)
+    assert resumed.exit_code == 0, resumed.output
+    assert "Resumed task" in resumed.output
+    assert stored.cancel_requested is False
+
+
+def test_schedule_cancel_rejects_an_unknown_task(runner: CliRunner) -> None:
+    result = _invoke(runner, "schedule", "cancel", "no-such-id")
+
+    assert result.exit_code != 0
+    assert "Task not found" in result.output
+
+
+def test_schedule_checkpoint_rejects_an_unknown_task(runner: CliRunner) -> None:
+    result = _invoke(runner, "schedule", "checkpoint", "no-such-id")
+
+    assert result.exit_code != 0
+    assert "Task not found" in result.output
+
+
 def test_schedule_add_then_list(runner: CliRunner) -> None:
     added = _invoke(runner, "schedule", "add", "greet", "say hi", "--interval", "30m")
     assert added.exit_code == 0, added.output

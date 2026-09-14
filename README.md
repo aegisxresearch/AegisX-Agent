@@ -115,7 +115,16 @@ aegisx schedule list      # Tasks, next run, last status
 aegisx schedule run       # Execute due tasks now, then keep checking until Ctrl+C
 aegisx schedule run --once  # Fire everything due and exit
 aegisx schedule logs <id> # Run history for one task
+aegisx schedule cancel <id> # Pause a task now (interrupts an active run)
+aegisx schedule resume <id> # Resume a paused task from its checkpoint
+aegisx schedule checkpoint <id> # Show a task's latest persisted checkpoint
 aegisx schedule remove <id>
+
+# Plugins (explicitly loaded, permission-aware)
+aegisx plugin list         # Loaded plugins + the gate's verdict for each
+aegisx plugin load ./my_plugin.py   # Load from a Python file
+aegisx plugin load my_pkg.plugins   # Load from an importable module
+aegisx plugin unload demo  # Remove a loaded plugin
 ```
 
 ## 🔌 Supported Providers
@@ -333,7 +342,10 @@ checkpoints, recover interrupted runs, support cancellation/resume, use
 exponential retry backoff, and pause after repeated identical failures.
 
 See [plugins and autonomous tasks](docs/plugins-and-autonomous-tasks.md) for the
-Python API and lifecycle details.
+Python API and lifecycle details. The CLI mirrors it: `aegisx plugin
+list|load|unload` shows each plugin with its risk and the gate's verdict under
+the current mode, and `aegisx schedule cancel|resume|checkpoint` controls
+tasks without leaving the terminal.
 
 ## 🏗️ Architecture
 
