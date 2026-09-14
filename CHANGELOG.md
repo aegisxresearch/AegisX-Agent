@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Subagent delegation (`spawn_subagent`).** The agent can decompose work by
+  spawning nested agent runs with their own history, a restricted tool set,
+  and a structural step budget (the child loop's `max_iterations`). Defaults
+  are the read-only builtins; requested extras are filtered against the parent
+  registry and `spawn_subagent` itself is never granted by name. Children
+  share the parent's permission gate and audit log, nesting is depth-capped
+  (`AEGISX_SUBAGENT_MAX_DEPTH`, default 2) with the child spawner bound to the
+  narrower child registry, and each run has a wall-clock timeout returning a
+  normal timeout result. Config: `AEGISX_SUBAGENT_MAX_STEPS`,
+  `AEGISX_SUBAGENT_MAX_DEPTH`, `AEGISX_SUBAGENT_TIMEOUT`,
+  `AEGISX_SUBAGENT_ENABLED`. Child tokens land in the usage log under the
+  parent's run id. Covered by 14 unit + end-to-end tests.
 - **MCP client support (Model Context Protocol).** AegisX can now consume
   tools from any MCP server over stdio via the official `mcp` SDK
   (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:

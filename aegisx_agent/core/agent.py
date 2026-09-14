@@ -235,6 +235,21 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         if self.config.rag_enabled and self._rag_engine:
             self.tools.register(RAGSearchTool(rag_engine=self._rag_engine))
 
+        # Subagent delegation (last, so it can see the full parent tool set)
+        if self.config.subagent_enabled:
+            from aegisx_agent.tools.subagent import SubagentTool
+
+            self.tools.register(
+                SubagentTool(
+                    llm_factory=lambda: self.llm,
+                    parent_registry=self.tools,
+                    gate=self.permission_gate,
+                    max_steps=self.config.subagent_max_steps,
+                    max_depth=self.config.subagent_max_depth,
+                    timeout=self.config.subagent_timeout,
+                )
+            )
+
     def register_plugin(self, definition: PluginDefinition) -> str:
         """Validate and register one explicit plugin as a gated tool."""
         plugin_tool = self.plugin_registry.register(definition)

@@ -440,6 +440,37 @@ aegisx mcp disconnect files
 Lihat [panduan integrasi MCP](docs/mcp-integration.md) untuk model keamanan,
 referensi konfigurasi, dan catatan lifecycle.
 
+### Delegasi subagen
+
+Agen dapat memecah pekerjaan dengan menjalankan **subagen** — agen bersarang
+dengan riwayat pesan sendiri, kumpulan tool terbatas, dan anggaran langkah
+yang keras:
+
+- Defaultnya adalah builtin read-only (`calculator`, `datetime`); model dapat
+  meminta lebih lewat argumen opsional `tools`, tetapi nama yang tidak dikenal
+  disaring dan **`spawn_subagent` sendiri tidak pernah diberikan secara
+  eksplisit**.
+- Setiap pemanggilan tool anak melewati **gerbang izin yang sama** dengan
+  induknya — delegasi bukan jalan tikus. Pada mode `read-only`, percobaan
+  tulisan anak ditolak seperti induknya.
+- Anggaran langkah bersifat struktural (`max_iterations` loop anak), bukan
+  sekadar saran di prompt; anak yang berhenti karena anggaran mengatakannya
+  di laporannya.
+- Nesting dibatasi kedalaman (`AEGISX_SUBAGENT_MAX_DEPTH`, default 2): anak di
+  bawah batas mendapat `spawn_subagent` sendiri yang terikat pada kumpulan
+  tool yang lebih sempit, sehingga kumpulan tool hanya menyusut turun
+  generasi.
+
+```env
+AEGISX_SUBAGENT_MAX_STEPS=8      # iterasi per eksekusi anak
+AEGISX_SUBAGENT_MAX_DEPTH=2      # generasi nesting
+AEGISX_SUBAGENT_TIMEOUT=120      # detik per eksekusi anak
+AEGISX_SUBAGENT_ENABLED=true     # set false untuk menghapus tool ini
+```
+
+Token anak dicatat oleh usage tracker dengan run id yang sama dengan induk,
+sehingga `aegisx usage` melaporkan biaya penuh tugas yang didelegasikan.
+
 ## 🏗️ Arsitektur
 
 ```

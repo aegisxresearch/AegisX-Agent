@@ -6,7 +6,6 @@ deterministically without a database or LLM.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
@@ -31,7 +30,7 @@ class StubAgent:
         return self.tasks
 
     def run_due_scheduled_tasks(self):
-        return asyncio.sleep(0, result=self.due_results) and self.due_results
+        return self.due_results
 
     async def run_due_async(self):
         return self.due_results

@@ -103,6 +103,20 @@ class AgentConfig(BaseSettings):
         description="Tell the agent where it is running (cwd, stack, git, AGENTS.md)",
     )
 
+    # === Subagent delegation ===
+    subagent_enabled: bool = Field(
+        default=True, description="Enable the spawn_subagent delegation tool"
+    )
+    subagent_max_steps: int = Field(
+        default=8, description="Step budget (max iterations) per subagent run"
+    )
+    subagent_max_depth: int = Field(
+        default=2, description="How many generations of nested subagents are allowed"
+    )
+    subagent_timeout: float = Field(
+        default=120.0, description="Wall-clock timeout per subagent run, in seconds"
+    )
+
     # === Safety settings ===
     permission_mode: PermissionMode = Field(
         default=PermissionMode.ASK,

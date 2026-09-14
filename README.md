@@ -377,6 +377,11 @@ AEGISX_RAG_ENABLED=true
 AEGISX_SHELL_ENABLED=false
 AEGISX_PROJECT_CONTEXT_ENABLED=true    # cwd, stack, git, AGENTS.md in the prompt
 
+# Subagent delegation
+AEGISX_SUBAGENT_MAX_STEPS=8
+AEGISX_SUBAGENT_MAX_DEPTH=2
+AEGISX_SUBAGENT_TIMEOUT=120
+
 # Permissions
 AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
 AEGISX_ALLOWED_TOOLS=                # e.g. execute_code,run_tests
@@ -448,6 +453,33 @@ aegisx mcp disconnect files
 
 See the [MCP integration guide](docs/mcp-integration.md) for the security
 model, config reference, and lifecycle notes.
+
+### Subagent delegation
+
+The agent can decompose work by spawning **subagents** — nested agent runs
+with their own message history, a restricted tool set, and a hard step budget:
+
+- Defaults are the read-only builtins (`calculator`, `datetime`); the model can
+  request more with the optional `tools` argument, but unknown names are
+  filtered out and **`spawn_subagent` itself is never granted by name**.
+- Every child tool call passes the **same permission gate** as the parent —
+  delegation is never a bypass. In `read-only` mode a child's write attempts
+  are refused just like the parent's.
+- The step budget is structural (`max_iterations` of the child loop), not a
+  prompt suggestion; a child that stops on its cap says so in its report.
+- Nesting is capped by depth (`AEGISX_SUBAGENT_MAX_DEPTH`, default 2): a child
+  under the cap gets its own `spawn_subagent` bound to its (narrower) tool set,
+  so tool sets only ever shrink down the generations.
+
+```env
+AEGISX_SUBAGENT_MAX_STEPS=8      # iterations per child run
+AEGISX_SUBAGENT_MAX_DEPTH=2      # generations of nesting
+AEGISX_SUBAGENT_TIMEOUT=120      # wall-clock seconds per child run
+AEGISX_SUBAGENT_ENABLED=true     # set false to remove the tool entirely
+```
+
+Child tokens are recorded by the usage tracker under the same run id as the
+parent's, so `aegisx usage` reports the full cost of a delegated task.
 
 ## 🏗️ Architecture
 
