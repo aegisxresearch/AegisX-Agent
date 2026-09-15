@@ -287,7 +287,7 @@ def test_progress_hook_reports_failures_timeouts_and_swallows_observer_errors() 
     timeout_events: list[str] = []
     slow = _tool(SlowLLM(), registry, on_progress=timeout_events.append, timeout=0.05)
     run(slow.execute(task="hang"))
-    assert timeout_events[-1].startswith("  ⏹ subagent (depth 1) timed out after 0.05s")
+    assert timeout_events[-1].startswith("⏹ subagent (depth 1) timed out after 0.05s")
 
 
 def test_nested_spawner_inherits_the_progress_hook() -> None:
@@ -340,22 +340,49 @@ def test_progress_quiet_silences_every_delegation_event() -> None:
     assert events == []
 
 
-def test_progress_steps_reports_the_run_without_the_cost_line() -> None:
+def test_progress_steps_reports_the_run_and_its_outcome() -> None:
     events, result = _delegation_events(SubagentProgress.STEPS)
 
     assert result.is_success
-    assert len(events) == 2
+    assert len(events) == 3
     assert events[0].startswith("⏵ subagent (depth 1, budget 4): say hi")
     assert events[1] == "  ⏳ subagent step: echo ✅"
-    assert not any("done:" in event for event in events)
+    # The closing line is part of the default level: status first, then cost.
+    assert events[2] == "✓ subagent (depth 1) completed: 2 steps, 1 tool call, 9 tokens, 0.0s"
 
 
-def test_progress_verbose_adds_the_cost_line_on_top_of_the_steps() -> None:
+def test_progress_verbose_adds_the_delegation_id_to_the_outcome() -> None:
     events, result = _delegation_events(SubagentProgress.VERBOSE)
 
     assert result.is_success
     assert len(events) == 3
-    assert events[-1] == "⏵ subagent (depth 1) done: 1 tool calls, 9 tokens, 0.0s"
+    # The id is what ties a streamed line to its row in `aegisx usage`.
+    assert events[-1] == (
+        "✓ subagent (depth 1) completed: 2 steps, 1 tool call, 9 tokens, 0.0s"
+        f" [{result.metadata['delegation']}]"
+    )
+
+
+def test_progress_marks_a_delegation_that_hit_its_step_budget() -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    llm = ScriptedLLM(
+        [
+            _tool_call("1", "echo", '{"text": "a"}'),
+            _tool_call("2", "echo", '{"text": "b"}'),
+            _text("stopping here"),  # the forced wrap-up at the cap
+        ]
+    )
+    events: list[str] = []
+    tool = _tool(llm, registry, max_steps=2, on_progress=events.append)
+
+    run(tool.execute(task="loop forever", tools="echo"))
+
+    # A cut-short delegation is not reported as a clean completion.
+    assert any(
+        event.startswith("⚠ subagent (depth 1) hit its step budget: ") for event in events
+    )
+    assert not any("completed" in event for event in events)
 
 
 def test_progress_levels_apply_to_failure_and_timeout_events() -> None:
@@ -374,7 +401,7 @@ def test_progress_levels_apply_to_failure_and_timeout_events() -> None:
         timeout=0.05, progress="steps",
     )
     run(steps.execute(task="hang"))
-    assert steps_events[-1].startswith("  ⏹ subagent (depth 1) timed out after 0.05s")
+    assert steps_events[-1].startswith("⏹ subagent (depth 1) timed out after 0.05s")
 
 
 def test_progress_accepts_strings_and_rejects_unknown_levels() -> None:
@@ -430,7 +457,9 @@ def test_a_tracked_delegation_records_its_outcome(tmp_path: Any) -> None:
     assert rows[0]["task"] == "say hi"  # whitespace collapsed for the log
     assert rows[0]["steps"] == 2
     assert rows[0]["tool_calls"] == 1
-    assert rows[0]["duration_seconds"] > 0
+    # A stubbed child finishes in microseconds, so the value is rounded to 0.0;
+    # the end-to-end test measures a real HTTP round trip instead.
+    assert isinstance(rows[0]["duration_seconds"], float)
     assert rows[0]["status"] == "completed"
 
 

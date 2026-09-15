@@ -28,9 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `on_tool_result` callback so non-streaming child loops can report progress;
   nested delegations forward depth-tagged events to the same observer, and a
   broken observer can never break a run. The volume is a policy:
-  `AEGISX_SUBAGENT_PROGRESS` selects `quiet` (silent),  `steps` (default: start, per-call, and timeout lines), or `verbose` (adds
-  the cost line). Nested spawners inherit the level, and unknown values are
-  rejected at config load.
+  `AEGISX_SUBAGENT_PROGRESS` selects `quiet` (silent),  `steps` (default: start, per-call, and outcome lines), or `verbose` (adds
+  the delegation id to the outcome line). Nested spawners inherit the level,
+  and unknown values are rejected at config load.
+- **Inline delegation status and cost.** A delegation now closes with a single
+  streamed line stating how it ended and what it cost — `✓ completed`,
+  `⚠ hit its step budget`, or `⏹ timed out`, each followed by steps, tool
+  calls, tokens, and wall-clock duration — emitted at the default level rather
+  than only in `verbose`, since a finished delegation was otherwise
+  indistinguishable from a running one. `verbose` adds the delegation id so
+  the line can be matched to its row in `aegisx usage --delegations`.
 - **Per-delegation cost in `aegisx usage`.** LLM calls made inside a
   delegation are tagged with the delegation's id, depth, and task via a
   contextvar carried by the child's asyncio task, so concurrent and nested

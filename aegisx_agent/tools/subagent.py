@@ -85,11 +85,13 @@ class SubagentProgress(str, Enum):
     ``QUIET``
         Nothing at all — a delegation is invisible until it returns.
     ``STEPS``
-        The start line, one line per child tool call, and the timeout line:
-        enough to see that work is happening without the running cost.
+        The start line, one line per child tool call, and the closing outcome
+        line: how the delegation ended (completed, budget, timeout) and what it
+        cost (steps, tool calls, tokens, duration).
     ``VERBOSE``
-        Everything ``STEPS`` shows, plus the closing cost line (tool calls,
-        tokens, duration).
+        Everything ``STEPS`` shows, plus the delegation's id on the outcome
+        line, so a stream line can be matched to its row in
+        ``aegisx usage --delegations``.
     """
 
     QUIET = "quiet"
@@ -104,6 +106,18 @@ _PROGRESS_RANK: dict[SubagentProgress, int] = {
     SubagentProgress.STEPS: 1,
     SubagentProgress.VERBOSE: 2,
 }
+
+#: Glyph per delegation outcome, so status is scannable inline.
+_STATUS_GLYPHS: dict[str, str] = {
+    "completed": "✓",
+    "budget": "⚠",
+    "timeout": "⏹",
+}
+
+
+def _count(value: int, noun: str) -> str:
+    """``1 step`` / ``2 steps`` — this line is read by people."""
+    return f"{value} {noun}" if value == 1 else f"{value} {noun}s"
 
 
 class SubagentTool(Tool):
@@ -248,8 +262,8 @@ class SubagentTool(Tool):
         """Forward one progress line, unless the configured level hides it.
 
         ``minimum`` is the least verbose level that still shows the event, so
-        the same call sites serve every mode: ``quiet`` silences them all and
-        ``verbose`` reveals the cost line on top of the step lines.
+        the same call sites serve every mode — ``quiet`` silences them all,
+        and ``verbose`` widens the outcome line with the delegation id.
         """
         if _PROGRESS_RANK[self.progress] < _PROGRESS_RANK[minimum]:
             return
@@ -258,6 +272,36 @@ class SubagentTool(Tool):
                 self._on_progress(event)
             except Exception:  # noqa: BLE001 - telemetry must never break a run
                 pass
+
+    def _delegation_tag(self, delegation_id: str) -> str:
+        """The ``[id]`` suffix for outcome lines, shown only at verbose level.
+
+        The id is what ties a streamed line to its row in
+        ``aegisx usage --delegations``, so it is detail rather than default.
+        """
+        if self.progress is SubagentProgress.VERBOSE:
+            return f" [{delegation_id}]"
+        return ""
+
+    def _emit_outcome(
+        self,
+        status: str,
+        *,
+        label: str,
+        detail: str,
+        delegation_id: str,
+    ) -> None:
+        """Emit the closing line: how the delegation ended, and what it cost.
+
+        Part of the default level on purpose — a finished delegation and a
+        running one look identical on the stream otherwise, and the parent
+        model only ever sees the tool result, never this line.
+        """
+        glyph = _STATUS_GLYPHS.get(status, "✓")
+        line = f"{glyph} subagent (depth {self.depth}) {label}"
+        if detail:
+            line += f": {detail}"
+        self._emit(f"{line}{self._delegation_tag(delegation_id)}")
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         task = str(kwargs.get("task") or "").strip()
@@ -314,8 +358,12 @@ class SubagentTool(Tool):
                     timeout=self.timeout,
                 )
             except asyncio.TimeoutError:
-                self._emit(
-                    f"  ⏹ subagent (depth {self.depth}) timed out after {self.timeout:g}s"
+                self._emit_outcome(
+                    "timeout",
+                    label=f"timed out after {self.timeout:g}s",
+                    # A cancelled run has no trace, so there is no cost to report.
+                    detail="",
+                    delegation_id=delegation.id,
                 )
                 record_delegation_outcome(
                     child_llm,
@@ -354,12 +402,16 @@ class SubagentTool(Tool):
             status="budget" if budget_exhausted else "completed",
         )
 
-        cost = (
-            f"⏵ subagent (depth {self.depth}) done: "
-            f"{trace.total_tool_calls} tool calls, "
-            f"{trace.total_tokens} tokens, {duration:.1f}s"
+        self._emit_outcome(
+            "budget" if budget_exhausted else "completed",
+            label="hit its step budget" if budget_exhausted else "completed",
+            detail=(
+                f"{_count(len(trace.steps), 'step')}, "
+                f"{_count(trace.total_tool_calls, 'tool call')}, "
+                f"{_count(trace.total_tokens, 'token')}, {duration:.1f}s"
+            ),
+            delegation_id=delegation.id,
         )
-        self._emit(cost, SubagentProgress.VERBOSE)
 
         if note:
             final = f"[subagent note: {note}]\n{final}"

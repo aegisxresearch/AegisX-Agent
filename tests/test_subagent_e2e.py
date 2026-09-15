@@ -8,6 +8,7 @@ citizens of the agent, not a separate runtime.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -174,24 +175,36 @@ def test_streaming_turn_surfaces_subagent_steps_by_default(fake_llm, tmp_path) -
     chunks = run(_collect(agent.chat_stream("delegate a calculation")))
     text = "".join(chunks)
 
-    # Start line and per-step calls reached the stream; the cost line is the
-    # one thing the default level leaves out.
     assert "subagent (depth 1, budget 8): compute 2+2" in text
     assert "subagent step: calculator \u2705" in text
-    assert "subagent (depth 1) done:" not in text
+    # The closing line reaches the stream by default, so a delegation's status
+    # and cost are never a mystery after it finishes.
+    assert "subagent (depth 1) completed:" in text
+    assert "2 steps, 1 tool call, 10 tokens" in text
     # The child's own answer travels as tool-result data (not stream text);
     # the parent's wrap-up is what streams to the user.
     assert "The answer is 4." in text
 
 
-def test_verbose_progress_streams_the_cost_line(fake_llm, tmp_path) -> None:
+def test_verbose_progress_adds_the_delegation_id_to_the_stream(fake_llm, tmp_path) -> None:
     agent = _agent(fake_llm, tmp_path, subagent_progress="verbose")
     _script_one_delegation(fake_llm)
 
     text = "".join(run(_collect(agent.chat_stream("delegate a calculation"))))
 
-    assert "subagent (depth 1) done:" in text
-    assert "tokens" in text
+    assert "subagent (depth 1) completed:" in text
+    # The id is the bridge from this line to `aegisx usage --delegations`.
+    assert re.search(r"completed: .*\[[0-9a-f]{8}\]", text)
+
+
+def test_default_progress_shows_no_delegation_id(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path)
+    _script_one_delegation(fake_llm)
+
+    text = "".join(run(_collect(agent.chat_stream("delegate a calculation"))))
+
+    assert "completed:" in text
+    assert not re.search(r"\[[0-9a-f]{8}\]", text)
 
 
 def test_quiet_progress_keeps_the_delegation_off_the_stream(fake_llm, tmp_path) -> None:
@@ -203,6 +216,7 @@ def test_quiet_progress_keeps_the_delegation_off_the_stream(fake_llm, tmp_path) 
     # No telemetry at all, but the turn itself still completes normally.
     assert "subagent (depth 1" not in text
     assert "subagent step:" not in text
+    assert "completed:" not in text
     assert "The answer is 4." in text
 
 

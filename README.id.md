@@ -520,24 +520,33 @@ id, kedalaman, dan task delegasinya sendiri, sehingga `aegisx usage`
 melaporkan biaya penuh tugas yang didelegasikan *dan* rinciannya per delegasi
 (`aegisx usage --delegations`).
 
-**Telemetri langsung.** Saat streaming (`aegisx chat`), delegasi mencetak
-kemajuannya secara langsung, sehingga subagen yang berjalan lama tidak
-terlihat seperti hang:
+**Telemetri langsung.** Saat streaming (`aegisx chat`), delegasi mengumumkan
+dirinya, melaporkan setiap pemanggilan tool anak, lalu ditutup dengan **cara ia
+berakhir dan berapa biayanya** — sehingga delegasi yang sudah selesai tidak
+lagi terlihat seperti yang masih berjalan:
 
 ```text
 ⏵ subagent (depth 1, budget 8): compute 2+2
   ⏳ subagent step: calculator ✅
-⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s      # hanya verbose
+✓ subagent (depth 1) completed: 2 steps, 1 tool call, 10 tokens, 0.1s
 🔧 spawn_subagent: ✅
 ```
+
+Baris hasil membawa salah satu dari tiga status, ditandai agar mudah dibaca:
+
+| Status | Arti |
+|--------|------|
+| `✓ completed` | Anak menyelesaikan tugasnya dalam batas. |
+| `⚠ hit its step budget` | Anak kehabisan langkah; laporannya menyatakan tugas mungkin belum tuntas. |
+| `⏹ timed out` | Batas waktu membatalkan run (biaya tidak dilaporkan: loop yang dibatalkan tidak punya trace). |
 
 Seberapa banyak yang dicetak diatur oleh `AEGISX_SUBAGENT_PROGRESS`:
 
 | Level | Yang masuk ke stream |
 |-------|----------------------|
 | `quiet` | Tidak ada — delegasi tidak terlihat sampai selesai. |
-| `steps` (default) | Baris mulai, satu baris per pemanggilan tool anak, baris timeout. |
-| `verbose` | Semua di atas, plus baris biaya penutup (tool call, token, durasi). |
+| `steps` (default) | Baris mulai, satu baris per pemanggilan tool anak, dan baris hasil (status + biaya). |
+| `verbose` | Semua di atas, plus id delegasi pada baris hasil, untuk dicocokkan dengan `aegisx usage --delegations`. |
 
 Delegasi bersarang melaporkan event bertanda kedalaman ke stream yang sama dan
 mewarisi level induknya; tiap level juga berlaku untuk kegagalan dan timeout,

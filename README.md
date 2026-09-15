@@ -530,23 +530,32 @@ tagged with the delegation's own id, depth, and task, so `aegisx usage` reports
 the full cost of a delegated task *and* how it splits across delegations
 (`aegisx usage --delegations`).
 
-**Live telemetry.** While streaming (`aegisx chat`), a delegation prints its
-progress as it happens, so a long subagent never looks like a hang:
+**Live telemetry.** While streaming (`aegisx chat`), a delegation announces
+itself, reports each child tool call, and then closes with **how it ended and
+what it cost** — so a finished delegation never looks like a running one:
 
 ```text
 ⏵ subagent (depth 1, budget 8): compute 2+2
   ⏳ subagent step: calculator ✅
-⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s      # verbose only
+✓ subagent (depth 1) completed: 2 steps, 1 tool call, 10 tokens, 0.1s
 🔧 spawn_subagent: ✅
 ```
+
+The outcome line carries one of three statuses, marked at a glance:
+
+| Status | Meaning |
+|--------|---------|
+| `✓ completed` | The child finished its task within budget. |
+| `⚠ hit its step budget` | The child ran out of steps; its report says the task may be incomplete. |
+| `⏹ timed out` | The wall-clock limit cancelled the run (no cost is reported: a cancelled loop has no trace). |
 
 How much it prints is `AEGISX_SUBAGENT_PROGRESS`:
 
 | Level | What reaches the stream |
 |-------|-------------------------|
 | `quiet` | Nothing — the delegation is invisible until it returns. |
-| `steps` (default) | Start line, one line per child tool call, timeout line. |
-| `verbose` | Everything above, plus the closing cost line (tool calls, tokens, duration). |
+| `steps` (default) | Start line, one line per child tool call, and the outcome line (status + cost). |
+| `verbose` | Everything above, plus the delegation id on the outcome line, to match it against `aegisx usage --delegations`. |
 
 Nested delegations report depth-tagged events to the same stream and inherit
 the parent's level; each level applies to failures and timeouts too, so
