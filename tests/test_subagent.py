@@ -116,6 +116,8 @@ def test_subagent_round_trip_returns_child_answer_and_metadata() -> None:
     assert result.metadata["tools_given"] == ["echo"]
     assert result.metadata["budget_exhausted"] is False
     assert result.metadata["depth"] == 1
+    # The delegation id is what `aegisx usage` prices this run under.
+    assert len(result.metadata["delegation"]) == 8
 
     # The child saw its own system prompt with its budget and tool list.
     child_system = llm.seen_messages[0][0]
@@ -196,6 +198,7 @@ def test_timeout_returns_a_timeout_result_without_raising() -> None:
     assert result.status.value == "timeout"
     assert "timed out after 0.05s" in result.error
     assert result.metadata["tools_given"] == list(DEFAULT_SUBAGENT_TOOLS)
+    assert len(result.metadata["delegation"]) == 8  # still priced as a delegation
 
 
 def test_child_calls_share_the_parent_permission_gate() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,11 @@ from aegisx_agent.llm.base import LLMProvider, LLMResponse
 from aegisx_agent.observability.usage import (
     USAGE_FILE,
     UsageTracker,
+    current_delegation,
+    group_delegations,
     parse_natural_time,
     read_usage,
+    track_delegation,
 )
 
 
@@ -138,3 +142,119 @@ def test_read_usage_skips_corrupt_lines(tmp_path: Path) -> None:
 
 def test_missing_usage_file_reads_as_empty(tmp_path: Path) -> None:
     assert read_usage(tmp_path / "absent.jsonl") == []
+
+
+# --------------------------------------------------------------------------- #
+# Delegation attribution
+# --------------------------------------------------------------------------- #
+
+
+class EchoTokensLLM(LLMProvider):
+    """Provider that reports the caller's marker as its token count."""
+
+    def __init__(self) -> None:
+        super().__init__(model="echo-tokens")
+
+    async def chat(self, messages: Any, **kwargs: Any) -> LLMResponse:
+        marker = int(messages[-1]["content"])
+        return LLMResponse(content="ok", usage={"total_tokens": marker})
+
+    async def stream_chat(self, messages: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+        yield await self.chat(messages)
+
+
+def test_calls_inside_a_delegation_are_tagged_and_restored(tmp_path: Path) -> None:
+    tracker, _ = _tracker(tmp_path)
+
+    assert current_delegation() is None
+    with track_delegation(depth=1, task="  summarise\n  the   logs ") as label:
+        assert current_delegation() is label
+        run(tracker.chat([{"role": "user", "content": "a"}]))
+    assert current_delegation() is None
+
+    row = read_usage(tracker.path)[0]
+    assert row["delegation"] == label.id
+    assert row["depth"] == 1
+    assert row["task"] == "summarise the logs"  # whitespace collapsed
+    assert len(label.id) == 8
+
+
+def test_nested_delegation_shadows_the_outer_one_and_restores_it(tmp_path: Path) -> None:
+    tracker, _ = _tracker(tmp_path)  # 15, 10, 0 tokens scripted
+
+    with track_delegation(depth=1, task="outer") as outer:
+        run(tracker.chat([{"role": "user", "content": "a"}]))
+        with track_delegation(depth=2, task="inner") as inner:
+            run(tracker.chat([{"role": "user", "content": "b"}]))
+            assert inner.id != outer.id
+            assert current_delegation() is inner
+            run(tracker.chat([{"role": "user", "content": "c"}]))
+        assert current_delegation() is outer  # the grandchild did not leak out
+
+    rows = read_usage(tracker.path)
+    assert [row["task"] for row in rows] == ["outer", "inner", "inner"]
+    assert [row["depth"] for row in rows] == [1, 2, 2]
+    # A grandchild's tokens are billed to the grandchild, not its parent.
+    assert rows[1]["delegation"] != rows[0]["delegation"]
+
+
+def test_attribution_is_per_task_so_concurrent_delegations_do_not_mix(
+    tmp_path: Path,
+) -> None:
+    tracker = UsageTracker(EchoTokensLLM(), tmp_path / USAGE_FILE)
+
+    async def _delegate(marker: int) -> None:
+        with track_delegation(depth=1, task=f"job {marker}"):
+            await tracker.chat([{"role": "user", "content": str(marker)}])
+
+    async def _run_both() -> None:
+        await asyncio.gather(_delegate(11), _delegate(22))
+        # The parent turn's own call stays unattributed.
+        await tracker.chat([{"role": "user", "content": "99"}])
+
+    run(_run_both())
+
+    rows = {int(row["total_tokens"]): row for row in read_usage(tracker.path)}
+    assert rows[11]["delegation"] != rows[22]["delegation"]
+    assert (rows[11]["task"], rows[22]["task"]) == ("job 11", "job 22")
+    assert "delegation" not in rows[99]
+
+
+def test_group_delegations_sums_per_delegation_and_skips_parent_calls() -> None:
+    rows = [
+        {"calls": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
+         "timestamp": "2026-09-14T10:00:00"},  # parent: no delegation field
+        {"calls": 1, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
+         "delegation": "bbb", "depth": 1, "task": "cheap one",
+         "timestamp": "2026-09-14T10:01:00"},
+        {"calls": 2, "input_tokens": 40, "output_tokens": 0, "total_tokens": 40,
+         "delegation": "aaa", "depth": 2, "task": "expensive one",
+         "timestamp": "2026-09-14T10:02:00"},
+        {"calls": 1, "input_tokens": 5, "output_tokens": 0, "total_tokens": 5,
+         "delegation": "bbb", "depth": 1, "task": "cheap one",
+         "timestamp": "2026-09-14T10:03:00"},
+    ]
+
+    grouped = group_delegations(rows)
+
+    assert [item["delegation"] for item in grouped] == ["aaa", "bbb"]  # cost desc
+    assert grouped[0]["calls"] == 2 and grouped[0]["total_tokens"] == 40
+    assert grouped[1]["calls"] == 2 and grouped[1]["total_tokens"] == 20
+    assert grouped[1]["first_seen"] == "2026-09-14T10:01:00"
+    assert grouped[1]["last_seen"] == "2026-09-14T10:03:00"
+    # No delegation field anywhere means no subagent breakdown, not a crash.
+    assert group_delegations([{"calls": 1, "total_tokens": 5}]) == []
+
+
+def test_summarize_reports_the_subagent_split(tmp_path: Path) -> None:
+    tracker, _ = _tracker(tmp_path)
+    with track_delegation(depth=1, task="a child job"):
+        run(tracker.chat([{"role": "user", "content": "a"}]))  # 15 tokens
+    run(tracker.chat([{"role": "user", "content": "b"}]))  # 10 tokens, parent
+
+    summary = tracker.summarize()
+
+    assert summary["total_tokens"] == 25
+    assert summary["subagent_tokens"] == 15
+    assert summary["subagent_calls"] == 1
+    assert [item["task"] for item in summary["delegations"]] == ["a child job"]

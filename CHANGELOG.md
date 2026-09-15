@@ -28,10 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `on_tool_result` callback so non-streaming child loops can report progress;
   nested delegations forward depth-tagged events to the same observer, and a
   broken observer can never break a run. The volume is a policy:
-  `AEGISX_SUBAGENT_PROGRESS` selects `quiet` (silent), `steps` (default:
-  start, per-call, and timeout lines), or `verbose` (adds the cost line).
-  Nested spawners inherit the level, and unknown values are rejected at
-  config load.
+  `AEGISX_SUBAGENT_PROGRESS` selects `quiet` (silent),  `steps` (default: start, per-call, and timeout lines), or `verbose` (adds
+  the cost line). Nested spawners inherit the level, and unknown values are
+  rejected at config load.
+- **Per-delegation cost in `aegisx usage`.** LLM calls made inside a
+  delegation are tagged with the delegation's id, depth, and task via a
+  contextvar carried by the child's asyncio task, so concurrent and nested
+  delegations never bill each other. The summary gains parent/subagent token
+  rows plus the subagent share, followed by a "Per delegation" table (most
+expensive first); `aegisx usage --delegations` (or `/usage --delegations`)
+  filters to subagent work only, and `--json` carries the same `delegations`
+  array. Delegation ids also surface in the tool result's metadata.
 - **MCP client support (Model Context Protocol).** AegisX can now consume
   tools from any MCP server over stdio via the official `mcp` SDK
   (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:

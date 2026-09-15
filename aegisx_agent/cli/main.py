@@ -683,11 +683,14 @@ def usage_command(
     period: str = typer.Argument("7d", help="today, yesterday, <N>d or <N>h"),
     run_id: str | None = typer.Option(None, "--run", help="Only one run id"),
     model: str | None = typer.Option(None, "--model", help="Only one model"),
+    delegations: bool = typer.Option(
+        False, "--delegations", help="Only subagent work, one row per delegation"
+    ),
     as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
 ) -> None:
     """Show token usage recorded by the agent (from usage.jsonl)."""
     agent = _get_agent(_get_config())
-    summary = _print_usage_summary(agent, period, run_id, model)
+    summary = _print_usage_summary(agent, period, run_id, model, delegations)
     if as_json:
         console.print_json(_usage_to_json(summary))
 

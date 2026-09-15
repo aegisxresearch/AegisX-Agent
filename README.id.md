@@ -281,16 +281,51 @@ disensor.
 
 ## 📊 Observabilitas
 
-Setiap run agen mencatat satu baris JSONL di `~/.aegisx/usage.jsonl`: jumlah
-token, provider, model, durasi, dan run id. Karena tracker membungkus
-provider LLM itu sendiri, **semua** jalur — chat, eksekusi plan, run
-jadwal dan daemon — terukur. Periksa pemakaian tanpa keluar dari terminal:
+Setiap pemanggilan LLM mencatat satu baris JSONL di `~/.aegisx/usage.jsonl`:
+jumlah token, provider, model, dan run id. Karena tracker membungkus provider
+LLM itu sendiri, **semua** jalur — chat, eksekusi plan, run jadwal dan daemon
+— terukur. Periksa pemakaian tanpa keluar dari terminal:
 
 ```bash
-aegisx usage              # Ringkasan token/biaya lintas run terakhir
+aegisx usage                    # Ringkasan token/biaya lintas run terakhir
 aegisx usage --today
-aegisx audit --denied     # Hanya penolakan dari gerbang izin
+aegisx usage --delegations      # Hanya pekerjaan subagen, satu baris per delegasi
+aegisx audit --denied           # Hanya penolakan dari gerbang izin
 ```
+
+**Biaya subagen, dirinci per delegasi.** Pemanggilan di dalam delegasi diberi
+tanda id, kedalaman, dan task delegasinya, sehingga biaya subagen tidak lagi
+tercampur di total giliran:
+
+```text
+$ aegisx usage
+    📈 Token Usage  (7d)
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Metric          ┃  Value ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ Runs            │      1 │
+│ LLM calls       │     11 │
+│ Input tokens    │ 17,000 │
+│ Output tokens   │  1,400 │
+│ Total tokens    │ 18,400 │
+│ Parent tokens   │  6,100 │
+│ Subagent tokens │ 12,300 │
+│ Subagent calls  │     10 │
+│ Subagent share  │  66.8% │
+└─────────────────┴────────┘
+                  🤖 Per delegation (subagent cost)
+┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
+┃ Delegation ┃ Depth ┃ Task                         ┃ Calls ┃ Tokens ┃
+┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
+│ def67890   │     2 │ count the errors per service │     6 │  8,100 │
+│ abc12345   │     1 │ summarise the logs           │     4 │  4,200 │
+└────────────┴───────┴──────────────────────────────┴───────┴────────┘
+```
+
+Atribusi bersifat per *task*, bukan per proses: label delegasi dibawa oleh
+task asyncio anak, sehingga delegasi yang berjalan bersamaan atau bersarang
+tidak saling menagih (cucu menjadi barisnya sendiri). `--json` memuat array
+`delegations` yang sama untuk skrip.
 
 ## 🧭 Daemon Persisten
 
@@ -469,8 +504,10 @@ AEGISX_SUBAGENT_ENABLED=true     # set false untuk menghapus tool ini
 AEGISX_SUBAGENT_PROGRESS=steps   # quiet | steps | verbose
 ```
 
-Token anak dicatat oleh usage tracker dengan run id yang sama dengan induk,
-sehingga `aegisx usage` melaporkan biaya penuh tugas yang didelegasikan.
+Token anak dicatat oleh usage tracker dengan run id induk, tetapi ditandai
+id, kedalaman, dan task delegasinya sendiri, sehingga `aegisx usage`
+melaporkan biaya penuh tugas yang didelegasikan *dan* rinciannya per delegasi
+(`aegisx usage --delegations`).
 
 **Telemetri langsung.** Saat streaming (`aegisx chat`), delegasi mencetak
 kemajuannya secara langsung, sehingga subagen yang berjalan lama tidak

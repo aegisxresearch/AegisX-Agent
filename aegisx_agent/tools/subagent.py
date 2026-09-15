@@ -38,6 +38,7 @@ from typing import Any
 
 from aegisx_agent.core.loop import AgenticLoop
 from aegisx_agent.llm.base import LLMProvider, Message, Role
+from aegisx_agent.observability.usage import track_delegation
 from aegisx_agent.security.permissions import PermissionGate
 from aegisx_agent.tools.base import Tool, ToolResult, ToolRisk, ToolStatus
 from aegisx_agent.tools.registry import ToolRegistry
@@ -295,31 +296,37 @@ class SubagentTool(Tool):
             )
 
         started = time.monotonic()
-        try:
-            answer, trace = await asyncio.wait_for(
-                loop.run(
-                    messages=messages,
-                    system_prompt=system_prompt,
-                    on_tool_result=_on_child_tool,
-                ),
-                timeout=self.timeout,
-            )
-        except asyncio.TimeoutError:
-            self._emit(
-                f"  ⏹ subagent (depth {self.depth}) timed out after {self.timeout:g}s"
-            )
-            return ToolResult(
-                status=ToolStatus.TIMEOUT,
-                output="",
-                error=(
-                    f"Subagent timed out after {self.timeout:g}s while working on: "
-                    f"{task[:120]}"
-                ),
-                metadata={
-                    "depth": self.depth,
-                    "tools_given": tool_names,
-                },
-            )
+        # Everything the child spends is attributed to this delegation scope, so
+        # `aegisx usage` can price subagents apart from the parent's own calls.
+        # The child loop runs in a task created inside the scope, which is what
+        # carries the label; the parent turn's own calls stay unattributed.
+        with track_delegation(self.depth, task) as delegation:
+            try:
+                answer, trace = await asyncio.wait_for(
+                    loop.run(
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        on_tool_result=_on_child_tool,
+                    ),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError:
+                self._emit(
+                    f"  ⏹ subagent (depth {self.depth}) timed out after {self.timeout:g}s"
+                )
+                return ToolResult(
+                    status=ToolStatus.TIMEOUT,
+                    output="",
+                    error=(
+                        f"Subagent timed out after {self.timeout:g}s while working on: "
+                        f"{task[:120]}"
+                    ),
+                    metadata={
+                        "depth": self.depth,
+                        "tools_given": tool_names,
+                        "delegation": delegation.id,
+                    },
+                )
 
         duration = time.monotonic() - started
         budget_exhausted = trace.total_tool_calls >= self.max_steps
@@ -356,6 +363,7 @@ class SubagentTool(Tool):
             output=result.answer,
             metadata={
                 "depth": self.depth,
+                "delegation": delegation.id,
                 "steps": result.steps,
                 "tool_calls": result.tool_calls,
                 "total_tokens": result.total_tokens,

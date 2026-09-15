@@ -22,6 +22,11 @@ from support import run
 
 from aegisx_agent.config import AgentConfig, LLMProvider
 from aegisx_agent.core import AegisXAgent
+from aegisx_agent.observability.usage import (
+    USAGE_FILE,
+    group_delegations,
+    read_usage,
+)
 
 
 @pytest.fixture()
@@ -128,6 +133,27 @@ def _script_one_delegation(fake_llm: FakeLLMServer) -> None:
         sse_text(["The answer is 4."]),
     )
 
+
+def test_delegated_work_is_attributed_in_the_usage_log(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path)
+    _script_one_delegation(fake_llm)
+
+    run(_collect(agent.chat_stream("delegate a calculation")))
+
+    rows = read_usage(agent.config.data_path / USAGE_FILE)
+    delegations = group_delegations(rows)
+
+    # One delegation, priced on its own: the child's two LLM calls (handoff and
+    # final answer) and nothing of the parent's.
+    assert len(delegations) == 1
+    assert delegations[0]["depth"] == 1
+    assert delegations[0]["task"] == "compute 2+2"
+    assert delegations[0]["calls"] == 2
+    assert delegations[0]["total_tokens"] == 10
+    assert all(row["run_id"] == agent.session_id for row in rows)
+    # The parent turn's own calls stay unattributed, so the two are separable.
+    assert any("delegation" not in row for row in rows)
+    assert agent.usage.summarize()["subagent_tokens"] == 10
 
 def test_streaming_turn_surfaces_subagent_steps_by_default(fake_llm, tmp_path) -> None:
     agent = _agent(fake_llm, tmp_path)

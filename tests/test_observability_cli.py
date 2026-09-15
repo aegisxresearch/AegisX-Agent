@@ -121,6 +121,114 @@ def test_usage_handler_empty_state(tmp_path, capsys) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# /usage subagent breakdown
+# --------------------------------------------------------------------------- #
+
+
+def _seed_delegated_usage(agent: AegisXAgent) -> None:
+    """One parent turn plus two delegations of different cost."""
+    _seed_usage(
+        agent,
+        [
+            {"run_id": "r1", "model": "m", "calls": 1, "input_tokens": 100,
+             "output_tokens": 20, "total_tokens": 120, "timestamp": "2026-09-14T10:00:00"},
+            {"run_id": "r1", "model": "m", "calls": 1, "input_tokens": 10,
+             "output_tokens": 5, "total_tokens": 15, "timestamp": "2026-09-14T10:01:00",
+             "delegation": "abc12345", "depth": 1, "task": "summarise the logs"},
+            {"run_id": "r1", "model": "m", "calls": 2, "input_tokens": 40,
+             "output_tokens": 5, "total_tokens": 45, "timestamp": "2026-09-14T10:02:00",
+             "delegation": "def67890", "depth": 2, "task": "count the errors"},
+        ],
+    )
+
+
+def test_usage_summary_breaks_subagent_cost_out_per_delegation(tmp_path, capsys) -> None:
+    agent = _agent(tmp_path)
+    _seed_delegated_usage(agent)
+
+    summary = _print_usage_summary(agent)
+    out = capsys.readouterr().out
+
+    assert summary["total_tokens"] == 180
+    assert summary["subagent_tokens"] == 60
+    assert summary["parent_tokens"] == 120
+    assert summary["subagent_calls"] == 3
+    # Most expensive delegation first, each with its own task label.
+    assert [item["delegation"] for item in summary["delegations"]] == ["def67890", "abc12345"]
+    assert [item["depth"] for item in summary["delegations"]] == [2, 1]
+
+    assert "Subagent tokens" in out and "Parent tokens" in out
+    assert "33.3%" in out  # 60 of 180 tokens
+    assert "Per delegation" in out
+    assert "def67890" in out and "count the errors" in out
+    assert "abc12345" in out and "summarise the logs" in out
+
+
+def test_usage_summary_without_delegations_has_no_subagent_rows(tmp_path, capsys) -> None:
+    agent = _agent(tmp_path)
+    _seed_usage(
+        agent,
+        [{"run_id": "r1", "model": "m", "calls": 1, "input_tokens": 1,
+          "output_tokens": 1, "total_tokens": 2, "timestamp": "2026-09-14T10:00:00"}],
+    )
+
+    summary = _print_usage_summary(agent)
+    out = capsys.readouterr().out
+
+    assert summary["delegations"] == []
+    assert summary["subagent_tokens"] == 0
+    assert "Subagent" not in out
+    assert "Per delegation" not in out
+
+
+def test_delegations_flag_shows_only_subagent_work(tmp_path, capsys) -> None:
+    agent = _agent(tmp_path)
+    _seed_delegated_usage(agent)
+
+    summary = _print_usage_summary(agent, delegations_only=True)
+    out = capsys.readouterr().out
+
+    # The parent's 120 tokens are filtered out, so the split is 100% subagent.
+    assert summary["total_tokens"] == 60
+    assert summary["parent_tokens"] == 0
+    assert summary["delegations_only"] is True
+    assert "Filtered to subagent work only" in out
+    assert "100.0%" in out
+    assert "summarise the logs" in out
+
+
+def test_usage_handler_accepts_the_delegations_flag(tmp_path, capsys) -> None:
+    agent = _agent(tmp_path)
+    _seed_delegated_usage(agent)
+
+    _handle_usage_command("--delegations", agent)
+    out = capsys.readouterr().out
+    assert "Filtered to subagent work only" in out
+    assert "Per delegation" in out
+
+
+def test_delegation_table_caps_rows_and_reports_the_tail(tmp_path, capsys) -> None:
+    agent = _agent(tmp_path)
+    _seed_usage(
+        agent,
+        [
+            {"run_id": "r1", "model": "m", "calls": 1, "input_tokens": 1,
+             "output_tokens": 0, "total_tokens": 10 + index, "timestamp": "2026-09-14T10:00:00",
+             "delegation": f"d{index:07d}", "depth": 1, "task": f"job {index}"}
+            for index in range(13)
+        ],
+    )
+
+    summary = _print_usage_summary(agent, delegations_only=True)
+    out = capsys.readouterr().out
+
+    assert len(summary["delegations"]) == 13
+    assert "job 12" in out  # the priciest delegation is still shown
+    assert "job 0" not in out  # the tail is summarized, not printed
+    assert "3 more delegation(s)" in out
+
+
+# --------------------------------------------------------------------------- #
 # /audit slash handler
 # --------------------------------------------------------------------------- #
 
@@ -176,6 +284,14 @@ def test_usage_command_json_output(runner: CliRunner) -> None:
     result = _invoke(runner, "usage", "--json")
     # Empty state exits cleanly even in --json mode
     assert result.exit_code == 0, result.output
+
+
+def test_usage_command_accepts_delegations_flag(runner: CliRunner) -> None:
+    result = _invoke(runner, "usage", "--delegations")
+    assert result.exit_code == 0, result.output
+
+    help_text = _invoke(runner, "usage", "--help").output
+    assert "--delegations" in help_text
 
 
 def test_audit_command_group_registered(runner: CliRunner) -> None:

@@ -131,6 +131,7 @@ aegisx daemon remove <id>
 # Observability (token spend + gate decisions)
 aegisx usage             # Token/cost summary across recent runs
 aegisx usage --today     # Only today's runs
+aegisx usage --delegations   # Subagent cost, one row per delegation
 aegisx audit             # Recent permission-gate decisions
 aegisx audit --denied    # Only refusals
 
@@ -291,16 +292,51 @@ verdict, who decided — with credential-shaped arguments redacted.
 
 ## 📊 Observability
 
-Every agent run records one JSONL line in `~/.aegisx/usage.jsonl`: token
-counts, provider, model, duration, and a run id. Because the tracker wraps
-the LLM provider itself, **every** path — chat, plan execution, scheduled
-and daemon runs — is measured. Inspect spend without leaving the terminal:
+Every LLM call records one JSONL line in `~/.aegisx/usage.jsonl`: token
+counts, provider, model, and a run id. Because the tracker wraps the LLM
+provider itself, **every** path — chat, plan execution, scheduled and daemon
+runs — is measured. Inspect spend without leaving the terminal:
 
 ```bash
-aegisx usage              # Token/cost summary across recent runs
+aegisx usage                    # Token/cost summary across recent runs
 aegisx usage --today
-aegisx audit --denied     # Only the gate's refusals
+aegisx usage --delegations      # Only subagent work, one row per delegation
+aegisx audit --denied           # Only the gate's refusals
 ```
+
+**Subagent cost, priced per delegation.** Calls made inside a delegation are
+tagged with the delegation's id, depth, and task, so subagent spend is never
+buried in the turn total:
+
+```text
+$ aegisx usage
+    📈 Token Usage  (7d)
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Metric          ┃  Value ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ Runs            │      1 │
+│ LLM calls       │     11 │
+│ Input tokens    │ 17,000 │
+│ Output tokens   │  1,400 │
+│ Total tokens    │ 18,400 │
+│ Parent tokens   │  6,100 │
+│ Subagent tokens │ 12,300 │
+│ Subagent calls  │     10 │
+│ Subagent share  │  66.8% │
+└─────────────────┴────────┘
+                  🤖 Per delegation (subagent cost)
+┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
+┃ Delegation ┃ Depth ┃ Task                         ┃ Calls ┃ Tokens ┃
+┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
+│ def67890   │     2 │ count the errors per service │     6 │  8,100 │
+│ abc12345   │     1 │ summarise the logs           │     4 │  4,200 │
+└────────────┴───────┴──────────────────────────────┴───────┴────────┘
+```
+
+Attribution is per *task*, not per process: a delegation's label is carried by
+the child's asyncio task, so concurrent or nested delegations never bill each
+other (a grandchild is its own row). `--json` includes the same `delegations`
+array for scripting.
 
 ## 🧭 Persistent Daemon
 
@@ -480,8 +516,10 @@ AEGISX_SUBAGENT_ENABLED=true     # set false to remove the tool entirely
 AEGISX_SUBAGENT_PROGRESS=steps   # quiet | steps | verbose
 ```
 
-Child tokens are recorded by the usage tracker under the same run id as the
-parent's, so `aegisx usage` reports the full cost of a delegated task.
+Child tokens are recorded by the usage tracker under the parent's run id, but
+tagged with the delegation's own id, depth, and task, so `aegisx usage` reports
+the full cost of a delegated task *and* how it splits across delegations
+(`aegisx usage --delegations`).
 
 **Live telemetry.** While streaming (`aegisx chat`), a delegation prints its
 progress as it happens, so a long subagent never looks like a hang:
