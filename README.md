@@ -561,6 +561,11 @@ Nested delegations report depth-tagged events to the same stream and inherit
 the parent's level; each level applies to failures and timeouts too, so
 `quiet` stays silent even when a child fails.
 
+The same lines appear where there is no stream to carry them: `aegisx run`
+and `aegisx chat --no-stream` print them as they happen (dimmed, so the answer
+stays the main event) instead of leaving a delegated task silent until it
+returns.
+
 ## 🏗️ Architecture
 
 ```text

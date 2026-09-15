@@ -16,7 +16,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from aegisx_agent.cli.app import app as app  # re-exported  # noqa: F401
-from aegisx_agent.cli.app import console
+from aegisx_agent.cli.app import console, print_delegation_progress
 from aegisx_agent.cli.commands.code import (  # noqa: F401 — re-exported for tests
     _handle_code_command,
     _handle_git_command,
@@ -801,7 +801,9 @@ def run(
 
     started = time.perf_counter()
     try:
-        answer = asyncio.run(agent.chat(text))
+        # A delegated task reports what its subagents are doing as they do it;
+        # without this the only feedback until the answer is silence.
+        answer = asyncio.run(agent.chat(text, on_progress=print_delegation_progress))
     except Exception as exc:
         console.print(f"[error]Task failed: {exc}[/error]")
         raise typer.Exit(code=1) from exc

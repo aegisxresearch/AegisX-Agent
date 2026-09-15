@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from aegisx_agent.core.config import AgentConfig, missing_credentials
@@ -413,8 +414,38 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
         return system_prompt
 
-    async def chat(self, user_message: str) -> str:
-        """Send a message and get a response (non-streaming)."""
+    @contextmanager
+    def _subagent_telemetry(
+        self, observer: Callable[[str], None] | None
+    ) -> Iterator[None]:
+        """Route delegation progress to ``observer`` for the duration of a turn.
+
+        The hook lives on the registered tool, so it is process-wide state: it
+        is attached per turn and always cleared, because a callback left over
+        from a finished turn would fire into a queue nobody reads any more.
+        """
+        subagent = self.tools.get("spawn_subagent")
+        if observer is None or not isinstance(subagent, SubagentTool):
+            yield
+            return
+        subagent._on_progress = observer
+        try:
+            yield
+        finally:
+            subagent._on_progress = None
+
+    async def chat(
+        self,
+        user_message: str,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> str:
+        """Send a message and get a response (non-streaming).
+
+        ``on_progress`` receives delegation telemetry — start line, each child
+        tool call, and the outcome line — as it happens. Without it a turn that
+        delegates reports nothing until the final answer arrives, which is
+        exactly what a caller of this method has no stream to see it on.
+        """
         # Add user message to memory
         self.conversation.add(Message(role=Role.USER, content=user_message))
 
@@ -426,11 +457,12 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         tool_schemas = self.tools.list_schemas() or None
 
         # Run enhanced agentic loop
-        response, trace = await self.agent_loop.run(
-            messages=messages,
-            system_prompt=system_prompt,
-            tool_schemas=tool_schemas,
-        )
+        with self._subagent_telemetry(on_progress):
+            response, trace = await self.agent_loop.run(
+                messages=messages,
+                system_prompt=system_prompt,
+                tool_schemas=tool_schemas,
+            )
 
         # Save to memory
         self.conversation.add(Message(role=Role.ASSISTANT, content=response))
@@ -460,7 +492,6 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         tool_schemas = self.tools.list_schemas() or None
 
         queue: asyncio.Queue[str | None] = asyncio.Queue()
-        subagent = self.tools.get("spawn_subagent")
 
         async def _drive() -> None:
             def _on_chunk(piece: str) -> None:
@@ -470,24 +501,20 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                 queue.put_nowait(f"\n🔧 {name}: {'✅' if success else '❌'}\n")
 
             def _on_subagent_progress(event: str) -> None:
-                # Subagent telemetry: start line, per-step calls, cost line.
+                # Subagent telemetry: start line, per-step calls, outcome line.
                 queue.put_nowait(f"\n{event}\n")
 
-            if isinstance(subagent, SubagentTool):
-                subagent._on_progress = _on_subagent_progress
-
-            try:
-                response, trace = await self.agent_loop.run_streaming(
-                    messages=messages,
-                    system_prompt=system_prompt,
-                    tool_schemas=tool_schemas,
-                    on_chunk=_on_chunk,
-                    on_tool_result=_on_tool_result,
-                )
-            finally:
-                if isinstance(subagent, SubagentTool):
-                    subagent._on_progress = None
-                queue.put_nowait(None)
+            with self._subagent_telemetry(_on_subagent_progress):
+                try:
+                    response, trace = await self.agent_loop.run_streaming(
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        tool_schemas=tool_schemas,
+                        on_chunk=_on_chunk,
+                        on_tool_result=_on_tool_result,
+                    )
+                finally:
+                    queue.put_nowait(None)
 
             # The loop only reaches here on a completed turn, so the same
             # bookkeeping as chat() applies.

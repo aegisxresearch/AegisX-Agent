@@ -44,10 +44,13 @@ def canned(monkeypatch):
     """Replace the agent's model call, keeping the rest of the agent real."""
     seen: dict[str, Any] = {}
 
-    async def fake_chat(self: AegisXAgent, message: str) -> str:
+    async def fake_chat(
+        self: AegisXAgent, message: str, on_progress: Any = None
+    ) -> str:
         seen["message"] = message
         seen["mode"] = self.permission_gate.mode.value
         seen["tools"] = len(self.tools.list_tools())
+        seen["on_progress"] = on_progress
         return f"echo: {message}"
 
     monkeypatch.setattr(AegisXAgent, "chat", fake_chat)
@@ -65,6 +68,14 @@ def test_run_answers_once_and_exits(runner: CliRunner, canned) -> None:
     assert canned["message"] == "tulis test untuk scheduler"
     assert "echo: tulis test untuk scheduler" in result.output
     assert "done in" in result.output
+
+
+def test_run_asks_for_delegation_progress(runner: CliRunner, canned) -> None:
+    _invoke(runner, "run", "delegate a big job")
+
+    # The non-streaming path has no stream to carry telemetry, so the CLI hands
+    # the agent a printer instead of leaving a delegated turn silent.
+    assert canned["on_progress"].__name__ == "print_delegation_progress"
 
 
 def test_run_shows_where_it_is_working(runner: CliRunner, canned) -> None:
@@ -94,7 +105,7 @@ def test_run_without_a_task_fails_with_usage(runner: CliRunner, canned) -> None:
 
 
 def test_run_reports_a_failure_with_a_nonzero_exit(runner: CliRunner, monkeypatch) -> None:
-    async def boom(self: AegisXAgent, message: str) -> str:
+    async def boom(self: AegisXAgent, message: str, on_progress: Any = None) -> str:
         raise RuntimeError("provider unreachable")
 
     monkeypatch.setattr(AegisXAgent, "chat", boom)

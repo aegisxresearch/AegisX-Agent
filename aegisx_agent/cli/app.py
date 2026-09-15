@@ -20,6 +20,17 @@ THEME = Theme({
 
 console = Console(theme=THEME)
 
+
+def print_delegation_progress(event: str) -> None:
+    """Render one line of delegation telemetry for a non-streaming turn.
+
+    ``aegisx chat`` streams these inline; where there is no stream to carry
+    them, they are printed dim so the answer still reads as the main event.
+    How many arrive is decided by ``AEGISX_SUBAGENT_PROGRESS``, not here.
+    """
+    console.print(f"[dim]{event}[/dim]")
+
+
 app = typer.Typer(
     name="aegisx",
     help="🤖 AegisX Agent — Super-powered Agentic AI",

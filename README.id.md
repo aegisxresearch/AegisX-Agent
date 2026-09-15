@@ -552,6 +552,11 @@ Delegasi bersarang melaporkan event bertanda kedalaman ke stream yang sama dan
 mewarisi level induknya; tiap level juga berlaku untuk kegagalan dan timeout,
 jadi `quiet` tetap senyap meskipun anak gagal.
 
+Baris yang sama juga muncul saat tidak ada stream yang membawanya: `aegisx run`
+dan `aegisx chat --no-stream` mencetaknya saat kejadian (redup, agar jawaban
+tetap menjadi fokus) alih-alih membiarkan tugas yang didelegasikan senyap
+sampai selesai.
+
 ## 🏗️ Arsitektur
 
 ```

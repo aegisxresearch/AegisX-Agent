@@ -360,7 +360,7 @@ def test_chat_with_animation_streams_and_panels(agent, capsys, monkeypatch) -> N
     inter._chat_with_animation(agent, "hi")
     assert "hello" in out(capsys)
 
-    async def fake_chat(message: str) -> str:
+    async def fake_chat(message: str, on_progress: Any = None) -> str:
         return "full answer"
 
     agent.chat = fake_chat  # type: ignore[method-assign]

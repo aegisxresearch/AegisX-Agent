@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than only in `verbose`, since a finished delegation was otherwise
   indistinguishable from a running one. `verbose` adds the delegation id so
   the line can be matched to its row in `aegisx usage --delegations`.
+- **Delegation progress on non-streaming turns.** `AegisXAgent.chat` accepts
+  an `on_progress` callback, so `aegisx run` and `aegisx chat --no-stream`
+  report delegation telemetry as it happens instead of staying silent until
+  the answer arrives. The hook is attached per turn and always cleared, so a
+  finished turn's callback can never fire into a dead consumer.
 - **Per-delegation cost in `aegisx usage`.** LLM calls made inside a
   delegation are tagged with the delegation's id, depth, and task via a
   contextvar carried by the child's asyncio task, so concurrent and nested

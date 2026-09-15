@@ -20,7 +20,9 @@ from fake_llm import (
     sse_tool_call,
 )
 from support import run
+from typer.testing import CliRunner
 
+from aegisx_agent.cli import main as cli
 from aegisx_agent.config import AgentConfig, LLMProvider
 from aegisx_agent.core import AegisXAgent
 from aegisx_agent.observability.usage import (
@@ -28,6 +30,7 @@ from aegisx_agent.observability.usage import (
     group_delegations,
     read_usage,
 )
+from aegisx_agent.tools.subagent import SubagentTool
 
 
 @pytest.fixture()
@@ -218,6 +221,62 @@ def test_quiet_progress_keeps_the_delegation_off_the_stream(fake_llm, tmp_path) 
     assert "subagent step:" not in text
     assert "completed:" not in text
     assert "The answer is 4." in text
+
+
+def test_chat_reports_delegation_telemetry_through_its_callback(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path)
+    # Non-streaming: every request body is plain JSON.
+    fake_llm.script(
+        openai_tool_call_response(
+            "call_1", "spawn_subagent", '{"task": "compute 2+2", "tools": "calculator"}'
+        ),
+        openai_tool_call_response("call_2", "calculator", '{"expression": "2+2"}'),
+        openai_text_response("child: 4"),
+        openai_text_response("The answer is 4."),
+    )
+    events: list[str] = []
+
+    response = run(agent.chat("delegate a calculation", on_progress=events.append))
+
+    assert "answer is 4" in response
+    assert any(event.startswith("⏵ subagent (depth 1, budget 8)") for event in events)
+    assert any("subagent step: calculator" in event for event in events)
+    assert any("completed: 2 steps, 1 tool call, 10 tokens" in event for event in events)
+
+    # The hook is per turn: a turn that ends must not leave a callback behind.
+    subagent = agent.tools.get("spawn_subagent")
+    assert isinstance(subagent, SubagentTool)
+    assert subagent._on_progress is None
+
+
+def test_aegisx_run_prints_delegation_progress(fake_llm, tmp_path, monkeypatch) -> None:
+    """The non-streaming CLI path still reports what a subagent is doing."""
+    monkeypatch.setenv("AEGISX_LLM_PROVIDER", "custom")
+    monkeypatch.setenv("AEGISX_CUSTOM_BASE_URL", fake_llm.base_url)
+    monkeypatch.setenv("AEGISX_CUSTOM_API_KEY", "test-key")
+    monkeypatch.setenv("AEGISX_CUSTOM_MODEL", "fake-model")
+    monkeypatch.setenv("AEGISX_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("AEGISX_RAG_ENABLED", "false")
+    monkeypatch.setenv("AEGISX_WEB_SEARCH_ENABLED", "false")
+    monkeypatch.setattr(cli, "CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr(cli, "_agent", None)
+
+    fake_llm.script(
+        openai_tool_call_response(
+            "call_1", "spawn_subagent", '{"task": "compute 2+2", "tools": "calculator"}'
+        ),
+        openai_tool_call_response("call_2", "calculator", '{"expression": "2+2"}'),
+        openai_text_response("child: 4"),
+        openai_text_response("The answer is 4."),
+    )
+
+    result = CliRunner().invoke(cli.app, ["run", "delegate a calculation"])
+
+    assert result.exit_code == 0, result.output
+    assert "subagent (depth 1, budget 8): compute 2+2" in result.output
+    assert "subagent step: calculator" in result.output
+    assert "subagent (depth 1) completed:" in result.output
+    assert "The answer is 4." in result.output
 
 
 def test_budget_exhaustion_is_visible_to_the_parent(fake_llm, tmp_path) -> None:

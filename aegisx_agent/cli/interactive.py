@@ -14,7 +14,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 
-from aegisx_agent.cli.app import console
+from aegisx_agent.cli.app import console, print_delegation_progress
 from aegisx_agent.cli.commands.code import (
     _handle_code_command,
     _handle_git_command,
@@ -476,7 +476,10 @@ def _chat_with_animation(agent: AegisXAgent, user_message: str, no_stream: bool 
 
     try:
         if no_stream:
-            response = asyncio.run(agent.chat(user_message))
+            # No stream to carry delegation telemetry, so print it instead.
+            response = asyncio.run(
+                agent.chat(user_message, on_progress=print_delegation_progress)
+            )
             progress.stop()
             time.sleep(0.15)
             console.print()
