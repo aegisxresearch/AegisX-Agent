@@ -290,12 +290,16 @@ LLM itu sendiri, **semua** jalur — chat, eksekusi plan, run jadwal dan daemon
 aegisx usage                    # Ringkasan token/biaya lintas run terakhir
 aegisx usage --today
 aegisx usage --delegations      # Hanya pekerjaan subagen, satu baris per delegasi
+aegisx usage --delegations --run <id>   # Delegasi satu run: langkah dan durasi
 aegisx audit --denied           # Hanya penolakan dari gerbang izin
 ```
 
 **Biaya subagen, dirinci per delegasi.** Pemanggilan di dalam delegasi diberi
 tanda id, kedalaman, dan task delegasinya, sehingga biaya subagen tidak lagi
-tercampur di total giliran:
+tercampur di total giliran. Tiap delegasi juga menulis satu baris ringkasan
+penutup yang mencatat apa yang *dikerjakannya* — langkah, tool call, waktu
+dinding, dan bagaimana ia berakhir — dari situlah kolom `Steps`, `Duration`,
+dan `Status` berasal:
 
 ```text
 $ aegisx usage
@@ -314,13 +318,20 @@ $ aegisx usage
 │ Subagent share  │  66.8% │
 └─────────────────┴────────┘
                   🤖 Per delegation (subagent cost)
-┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
-┃ Delegation ┃ Depth ┃ Task                         ┃ Calls ┃ Tokens ┃
-┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
-│ def67890   │     2 │ count the errors per service │     6 │  8,100 │
-│ abc12345   │     1 │ summarise the logs           │     4 │  4,200 │
-└────────────┴───────┴──────────────────────────────┴───────┴────────┘
+┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Delegation ┃ Depth ┃ Task                         ┃ Steps ┃ Calls ┃ Tokens ┃ Duration ┃ Status    ┃
+┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━┩
+│ def67890   │     2 │ count the errors per service │     3 │     6 │  8,100 │   2m 05s │ budget    │
+│ abc12345   │     1 │ summarise the logs           │     2 │     4 │  4,200 │     4.5s │ completed │
+└────────────┴───────┴──────────────────────────────┴───────┴───────┴────────┴──────────┴───────────┘
 ```
+
+`Status` memisahkan delegasi yang selesai (`completed`) dari yang kehabisan
+langkah (`budget`) atau waktu (`timeout`) — delegasi yang terpotong bukan
+pekerjaan selesai, dan tabel tidak berpura-pura sebaliknya. Tambahkan
+`--run <id>` untuk membatasi tampilan ke satu run. Baris yang ditulis sebelum
+baris ringkasan ada akan menampilkan `—` untuk langkah dan durasi, bukan nol
+yang menyesatkan.
 
 Atribusi bersifat per *task*, bukan per proses: label delegasi dibawa oleh
 task asyncio anak, sehingga delegasi yang berjalan bersamaan atau bersarang

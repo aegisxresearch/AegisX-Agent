@@ -38,7 +38,7 @@ from typing import Any
 
 from aegisx_agent.core.loop import AgenticLoop
 from aegisx_agent.llm.base import LLMProvider, Message, Role
-from aegisx_agent.observability.usage import track_delegation
+from aegisx_agent.observability.usage import record_delegation_outcome, track_delegation
 from aegisx_agent.security.permissions import PermissionGate
 from aegisx_agent.tools.base import Tool, ToolResult, ToolRisk, ToolStatus
 from aegisx_agent.tools.registry import ToolRegistry
@@ -270,8 +270,11 @@ class SubagentTool(Tool):
 
         tool_names, note = self._resolve_tools(kwargs.get("tools"))
         registry = self._child_registry(tool_names)
+        # Held in a local so the closing usage line can be reported to the
+        # tracker that wrapped it, without asking the agent for anything.
+        child_llm = self._llm_factory()
         loop = AgenticLoop(
-            llm=self._llm_factory(),
+            llm=child_llm,
             tools=registry,
             max_iterations=self.max_steps,
             temperature=self.temperature,
@@ -314,6 +317,14 @@ class SubagentTool(Tool):
                 self._emit(
                     f"  ⏹ subagent (depth {self.depth}) timed out after {self.timeout:g}s"
                 )
+                record_delegation_outcome(
+                    child_llm,
+                    delegation,
+                    steps=0,
+                    tool_calls=0,
+                    duration_seconds=time.monotonic() - started,
+                    status="timeout",
+                )
                 return ToolResult(
                     status=ToolStatus.TIMEOUT,
                     output="",
@@ -331,6 +342,17 @@ class SubagentTool(Tool):
         duration = time.monotonic() - started
         budget_exhausted = trace.total_tool_calls >= self.max_steps
         final = answer.strip() or "Subagent produced no answer."
+
+        record_delegation_outcome(
+            child_llm,
+            delegation,
+            steps=len(trace.steps),
+            tool_calls=trace.total_tool_calls,
+            duration_seconds=duration,
+            # A child that stopped on its cap is not a completed job; saying so
+            # here keeps `aegisx usage --delegations` honest about it.
+            status="budget" if budget_exhausted else "completed",
+        )
 
         cost = (
             f"⏵ subagent (depth {self.depth}) done: "

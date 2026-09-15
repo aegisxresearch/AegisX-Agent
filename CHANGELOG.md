@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 expensive first); `aegisx usage --delegations` (or `/usage --delegations`)
   filters to subagent work only, and `--json` carries the same `delegations`
   array. Delegation ids also surface in the tool result's metadata.
+- **Delegation outcomes in the usage log.** Each delegation now writes one
+  closing summary line (`event: delegation`) recording its steps, tool calls,
+  wall-clock duration, and how it ended (`completed`, `budget`, or `timeout`),
+  so `aegisx usage --delegations --run <id>` lists what a delegation did and
+  not just what it spent. Summary lines are excluded from call/token totals and
+  from the per-model split; a delegation logged before they existed renders
+  `—` for steps and duration instead of a misleading zero.
 - **MCP client support (Model Context Protocol).** AegisX can now consume
   tools from any MCP server over stdio via the official `mcp` SDK
   (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:

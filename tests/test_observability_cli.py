@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from aegisx_agent.cli import main as cli
 from aegisx_agent.cli.commands.observability import (
+    _format_seconds,
     _handle_audit_command,
     _handle_usage_command,
     _print_usage_summary,
@@ -126,7 +127,7 @@ def test_usage_handler_empty_state(tmp_path, capsys) -> None:
 
 
 def _seed_delegated_usage(agent: AegisXAgent) -> None:
-    """One parent turn plus two delegations of different cost."""
+    """One parent turn plus two delegations, each with a closing summary row."""
     _seed_usage(
         agent,
         [
@@ -135,14 +136,28 @@ def _seed_delegated_usage(agent: AegisXAgent) -> None:
             {"run_id": "r1", "model": "m", "calls": 1, "input_tokens": 10,
              "output_tokens": 5, "total_tokens": 15, "timestamp": "2026-09-14T10:01:00",
              "delegation": "abc12345", "depth": 1, "task": "summarise the logs"},
+            {"run_id": "r1", "timestamp": "2026-09-14T10:01:30", "event": "delegation",
+             "delegation": "abc12345", "depth": 1, "task": "summarise the logs",
+             "steps": 2, "tool_calls": 1, "duration_seconds": 4.5, "status": "completed"},
             {"run_id": "r1", "model": "m", "calls": 2, "input_tokens": 40,
              "output_tokens": 5, "total_tokens": 45, "timestamp": "2026-09-14T10:02:00",
              "delegation": "def67890", "depth": 2, "task": "count the errors"},
+            {"run_id": "r1", "timestamp": "2026-09-14T10:04:00", "event": "delegation",
+             "delegation": "def67890", "depth": 2, "task": "count the errors",
+             "steps": 3, "tool_calls": 2, "duration_seconds": 125.0, "status": "budget"},
         ],
     )
 
 
-def test_usage_summary_breaks_subagent_cost_out_per_delegation(tmp_path, capsys) -> None:
+@pytest.fixture()
+def wide_console(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the render width: rich reads COLUMNS, so tables never truncate."""
+    monkeypatch.setenv("COLUMNS", "120")
+
+
+def test_usage_summary_breaks_subagent_cost_out_per_delegation(
+    tmp_path, capsys, wide_console
+) -> None:
     agent = _agent(tmp_path)
     _seed_delegated_usage(agent)
 
@@ -162,6 +177,66 @@ def test_usage_summary_breaks_subagent_cost_out_per_delegation(tmp_path, capsys)
     assert "Per delegation" in out
     assert "def67890" in out and "count the errors" in out
     assert "abc12345" in out and "summarise the logs" in out
+    # A delegation summary is not a call: it must not reach the per-model table.
+    assert "unknown" not in out
+
+
+def test_usage_delegations_run_view_lists_steps_and_duration(
+    tmp_path, capsys, wide_console
+) -> None:
+    agent = _agent(tmp_path)
+    _seed_delegated_usage(agent)
+
+    summary = _print_usage_summary(agent, run_id="r1", delegations_only=True)
+    out = capsys.readouterr().out
+
+    assert "(run r1)" in out
+    assert all(header in out for header in ("Steps", "Calls", "Tokens", "Duration", "Status"))
+
+    # Each delegation carries the outcome its closing summary row recorded.
+    by_id = {item["delegation"]: item for item in summary["delegations"]}
+    assert by_id["abc12345"]["steps"] == 2
+    assert by_id["abc12345"]["tool_calls"] == 1
+    assert by_id["abc12345"]["duration_seconds"] == 4.5
+    assert by_id["abc12345"]["status"] == "completed"
+    assert by_id["def67890"]["steps"] == 3
+    assert by_id["def67890"]["duration_seconds"] == 125.0
+    assert by_id["def67890"]["status"] == "budget"
+
+    assert "4.5s" in out and "2m 05s" in out  # sub-minute and sub-hour spellings
+    assert "completed" in out and "budget" in out
+
+
+def test_delegation_without_a_summary_row_degrades_gracefully(
+    tmp_path, capsys, wide_console
+) -> None:
+    agent = _agent(tmp_path)
+    # A log written before summary rows existed: tokens only, no steps/time.
+    _seed_usage(
+        agent,
+        [{"run_id": "r1", "model": "m", "calls": 2, "input_tokens": 10,
+          "output_tokens": 5, "total_tokens": 15, "timestamp": "2026-09-14T10:00:00",
+          "delegation": "abc12345", "depth": 1, "task": "old delegation"}],
+    )
+
+    summary = _print_usage_summary(agent, delegations_only=True)
+    out = capsys.readouterr().out
+
+    assert summary["delegations"][0]["steps"] == 0
+    assert summary["delegations"][0]["duration_seconds"] == 0.0
+    # Em dashes, not a misleading 0.0s / 0 steps.
+    assert "—" in out
+    assert "running?" in out
+
+
+def test_format_seconds_covers_every_magnitude() -> None:
+    assert _format_seconds(0) == "—"
+    assert _format_seconds(0.5) == "0.5s"
+    assert _format_seconds(59.9) == "59.9s"
+    assert _format_seconds(60) == "1m 00s"
+    assert _format_seconds(125.0) == "2m 05s"
+    assert _format_seconds(3600) == "1h 00m"
+    assert _format_seconds(7325) == "2h 02m"
 
 
 def test_usage_summary_without_delegations_has_no_subagent_rows(tmp_path, capsys) -> None:
@@ -181,7 +256,7 @@ def test_usage_summary_without_delegations_has_no_subagent_rows(tmp_path, capsys
     assert "Per delegation" not in out
 
 
-def test_delegations_flag_shows_only_subagent_work(tmp_path, capsys) -> None:
+def test_delegations_flag_shows_only_subagent_work(tmp_path, capsys, wide_console) -> None:
     agent = _agent(tmp_path)
     _seed_delegated_usage(agent)
 
@@ -207,7 +282,7 @@ def test_usage_handler_accepts_the_delegations_flag(tmp_path, capsys) -> None:
     assert "Per delegation" in out
 
 
-def test_delegation_table_caps_rows_and_reports_the_tail(tmp_path, capsys) -> None:
+def test_delegation_table_caps_rows_and_reports_the_tail(tmp_path, capsys, wide_console) -> None:
     agent = _agent(tmp_path)
     _seed_usage(
         agent,

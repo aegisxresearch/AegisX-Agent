@@ -301,12 +301,15 @@ runs — is measured. Inspect spend without leaving the terminal:
 aegisx usage                    # Token/cost summary across recent runs
 aegisx usage --today
 aegisx usage --delegations      # Only subagent work, one row per delegation
+aegisx usage --delegations --run <id>   # One run's delegations, steps and time
 aegisx audit --denied           # Only the gate's refusals
 ```
 
 **Subagent cost, priced per delegation.** Calls made inside a delegation are
 tagged with the delegation's id, depth, and task, so subagent spend is never
-buried in the turn total:
+buried in the turn total. Each delegation also writes one closing summary line
+recording what it *did* — steps, tool calls, wall clock, and how it ended —
+which is where the `Steps`, `Duration`, and `Status` columns come from:
 
 ```text
 $ aegisx usage
@@ -325,13 +328,19 @@ $ aegisx usage
 │ Subagent share  │  66.8% │
 └─────────────────┴────────┘
                   🤖 Per delegation (subagent cost)
-┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
-┃ Delegation ┃ Depth ┃ Task                         ┃ Calls ┃ Tokens ┃
-┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
-│ def67890   │     2 │ count the errors per service │     6 │  8,100 │
-│ abc12345   │     1 │ summarise the logs           │     4 │  4,200 │
-└────────────┴───────┴──────────────────────────────┴───────┴────────┘
+┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Delegation ┃ Depth ┃ Task                         ┃ Steps ┃ Calls ┃ Tokens ┃ Duration ┃ Status    ┃
+┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━┩
+│ def67890   │     2 │ count the errors per service │     3 │     6 │  8,100 │   2m 05s │ budget    │
+│ abc12345   │     1 │ summarise the logs           │     2 │     4 │  4,200 │     4.5s │ completed │
+└────────────┴───────┴──────────────────────────────┴───────┴───────┴────────┴──────────┴───────────┘
 ```
+
+`Status` separates a finished delegation (`completed`) from one that ran out of
+steps (`budget`) or wall clock (`timeout`) — a cut-short delegation is not a
+finished job, and the table does not pretend otherwise. Add `--run <id>` to
+scope the view to a single run. Rows written before summary lines existed show
+`—` for steps and duration rather than a misleading zero.
 
 Attribution is per *task*, not per process: a delegation's label is carried by
 the child's asyncio task, so concurrent or nested delegations never bill each

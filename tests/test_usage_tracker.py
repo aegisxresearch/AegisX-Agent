@@ -12,11 +12,13 @@ from support import run
 from aegisx_agent.llm.base import LLMProvider, LLMResponse
 from aegisx_agent.observability.usage import (
     USAGE_FILE,
+    Delegation,
     UsageTracker,
     current_delegation,
     group_delegations,
     parse_natural_time,
     read_usage,
+    record_delegation_outcome,
     track_delegation,
 )
 
@@ -244,6 +246,86 @@ def test_group_delegations_sums_per_delegation_and_skips_parent_calls() -> None:
     assert grouped[1]["last_seen"] == "2026-09-14T10:03:00"
     # No delegation field anywhere means no subagent breakdown, not a crash.
     assert group_delegations([{"calls": 1, "total_tokens": 5}]) == []
+
+
+def test_a_delegation_outcome_is_written_as_its_own_summary_line(tmp_path: Path) -> None:
+    tracker, _ = _tracker(tmp_path)
+    tracker.record_delegation(
+        Delegation(id="abc12345", depth=1, task="summarise the logs"),
+        steps=3,
+        tool_calls=2,
+        duration_seconds=4.25,
+        status="budget",
+    )
+
+    row = read_usage(tracker.path)[-1]
+    assert row["event"] == "delegation"
+    assert row["delegation"] == "abc12345"
+    assert (row["steps"], row["tool_calls"]) == (3, 2)
+    assert row["duration_seconds"] == 4.25
+    assert row["status"] == "budget"
+    assert row["run_id"] == tracker.run_id
+    # A summary describes a run, so it carries no call/token counts of its own.
+    assert "total_tokens" not in row and "calls" not in row
+
+
+def test_recording_an_outcome_on_an_untracked_provider_is_a_no_op(
+    tmp_path: Path,
+) -> None:
+    # A plain provider (tests, custom wiring) is not a tracker: reporting to it
+    # must do nothing at all rather than raise into the delegating run.
+    record_delegation_outcome(
+        RecordingLLM(),
+        Delegation(id="abc12345", depth=1, task="t"),
+        steps=1,
+        tool_calls=0,
+        duration_seconds=1.0,
+    )
+    assert read_usage(tmp_path / USAGE_FILE) == []
+
+
+def test_group_delegations_merges_the_summary_onto_the_call_rows() -> None:
+    rows = [
+        {"calls": 2, "input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
+         "delegation": "abc12345", "depth": 1, "task": "summarise the logs",
+         "timestamp": "2026-09-14T10:01:00"},
+        {"event": "delegation", "delegation": "abc12345", "depth": 1,
+         "task": "summarise the logs", "steps": 3, "tool_calls": 2,
+         "duration_seconds": 4.25, "status": "completed",
+         "timestamp": "2026-09-14T10:01:04"},
+    ]
+
+    item = group_delegations(rows)[0]
+
+    # What it spent, from the call rows...
+    assert (item["calls"], item["total_tokens"]) == (2, 15)
+    # ...and what it did, from the summary, which never adds to those sums.
+    assert item["steps"] == 3
+    assert item["tool_calls"] == 2
+    assert item["duration_seconds"] == 4.25
+    assert item["status"] == "completed"
+    assert item["last_seen"] == "2026-09-14T10:01:04"
+
+
+def test_summary_rows_stay_out_of_the_token_totals_and_model_split(
+    tmp_path: Path,
+) -> None:
+    tracker, _ = _tracker(tmp_path)
+    with track_delegation(depth=1, task="a child job") as label:
+        run(tracker.chat([{"role": "user", "content": "a"}]))  # 15 tokens
+    tracker.record_delegation(
+        label,
+        steps=1,
+        tool_calls=0,
+        duration_seconds=0.4,
+    )
+
+    summary = tracker.summarize()
+
+    assert summary["total_tokens"] == 15  # not doubled by the summary line
+    assert summary["calls"] == 1
+    assert "unknown" not in summary["models"]  # a summary is not a model call
+    assert summary["delegations"][0]["steps"] == 1
 
 
 def test_summarize_reports_the_subagent_split(tmp_path: Path) -> None:

@@ -155,6 +155,18 @@ def test_delegated_work_is_attributed_in_the_usage_log(fake_llm, tmp_path) -> No
     assert any("delegation" not in row for row in rows)
     assert agent.usage.summarize()["subagent_tokens"] == 10
 
+    # And the closing summary says what the delegation did, which the call rows
+    # cannot: two loop steps (tool call, then answer) in real wall-clock time.
+    outcomes = [row for row in rows if row.get("event") == "delegation"]
+    assert len(outcomes) == 1
+    assert outcomes[0]["delegation"] == delegations[0]["delegation"]
+    assert outcomes[0]["steps"] == 2
+    assert outcomes[0]["tool_calls"] == 1
+    assert outcomes[0]["status"] == "completed"
+    assert outcomes[0]["duration_seconds"] > 0
+    assert delegations[0]["steps"] == 2
+    assert delegations[0]["status"] == "completed"
+
 def test_streaming_turn_surfaces_subagent_steps_by_default(fake_llm, tmp_path) -> None:
     agent = _agent(fake_llm, tmp_path)
     _script_one_delegation(fake_llm)

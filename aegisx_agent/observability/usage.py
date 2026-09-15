@@ -27,6 +27,10 @@ USAGE_FILE = "usage.jsonl"
 #: Entry key naming the delegation a line belongs to.
 DELEGATION_FIELD = "delegation"
 
+#: Value of the ``event`` key on a delegation's closing summary line. Rows
+#: without an ``event`` are LLM call rows.
+DELEGATION_EVENT = "delegation"
+
 
 @dataclass(frozen=True)
 class Delegation:
@@ -152,13 +156,47 @@ class UsageTracker:
             entry[DELEGATION_FIELD] = delegation.id
             entry["depth"] = delegation.depth
             entry["task"] = delegation.task
+        self._append(entry)
+
+    def record_delegation(
+        self,
+        delegation: Delegation,
+        *,
+        steps: int,
+        tool_calls: int,
+        duration_seconds: float,
+        status: str = "completed",
+    ) -> None:
+        """Append one closing summary line for a finished delegation.
+
+        Call rows say what a delegation *spent*; this says what it *did* —
+        steps, tool calls, wall clock, and how it ended — none of which the
+        call rows can know, since they stop when the last response arrives.
+        """
+        self._append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "run_id": self.run_id,
+                "event": DELEGATION_EVENT,
+                DELEGATION_FIELD: delegation.id,
+                "depth": delegation.depth,
+                "task": delegation.task,
+                "steps": int(steps),
+                "tool_calls": int(tool_calls),
+                "duration_seconds": round(float(duration_seconds), 3),
+                "status": status,
+            }
+        )
+
+    def _append(self, entry: dict[str, Any]) -> None:
+        """Write one JSONL line, never letting observability break a run."""
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except OSError:
-            # Observability must never take a run down; the in-memory totals
-            # above are still accurate for this process.
+            # The in-memory totals stay accurate for this process even when the
+            # file cannot be written.
             pass
 
     # --- Summaries ------------------------------------------------------ #
@@ -183,6 +221,8 @@ class UsageTracker:
         }
         per_model: dict[str, int] = {}
         for row in rows:
+            if row.get("event"):
+                continue  # a delegation summary is not a call: no model, no tokens
             model = str(row.get("model", "unknown"))
             per_model[model] = per_model.get(model, 0) + int(row.get("total_tokens", 0) or 0)
         delegations = group_delegations(rows)
@@ -203,8 +243,11 @@ def group_delegations(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Entries recorded outside a delegation — the parent's own calls — carry no
     delegation field and are skipped: this is the subagent breakdown, not a
-    second copy of the total. The sort is stable (tokens, then id) so repeated
-    invocations over the same file print the same order.
+    second copy of the total. Two kinds of row feed one delegation: call rows
+    (tokens, calls, first/last seen) and the closing summary row (steps, tool
+    calls, duration, status), which is applied last-wins because it describes
+    the run as a whole rather than accumulating. The sort is stable (tokens,
+    then id) so repeated invocations over the same file print the same order.
     """
     grouped: dict[str, dict[str, Any]] = {}
     for row in entries:
@@ -222,23 +265,63 @@ def group_delegations(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "total_tokens": 0,
+                "steps": 0,
+                "tool_calls": 0,
+                "duration_seconds": 0.0,
+                "status": "",
                 "first_seen": timestamp,
                 "last_seen": timestamp,
             },
         )
-        bucket["calls"] += int(row.get("calls", 0) or 0)
-        bucket["input_tokens"] += int(row.get("input_tokens", 0) or 0)
-        bucket["output_tokens"] += int(row.get("output_tokens", 0) or 0)
-        bucket["total_tokens"] += int(row.get("total_tokens", 0) or 0)
+        # Both row kinds carry a timestamp, so the delegation's span covers the
+        # whole run — including a summary written after the last LLM response.
         if timestamp and (not bucket["first_seen"] or timestamp < str(bucket["first_seen"])):
             bucket["first_seen"] = timestamp
         if timestamp > str(bucket["last_seen"]):
             bucket["last_seen"] = timestamp
 
+        if row.get("event") == DELEGATION_EVENT:
+            bucket["depth"] = int(row.get("depth", 0) or bucket["depth"])
+            bucket["task"] = str(row.get("task") or bucket["task"])
+            bucket["steps"] = int(row.get("steps", 0) or 0)
+            bucket["tool_calls"] = int(row.get("tool_calls", 0) or 0)
+            bucket["duration_seconds"] = float(row.get("duration_seconds", 0.0) or 0.0)
+            bucket["status"] = str(row.get("status", "") or "")
+            continue
+        bucket["calls"] += int(row.get("calls", 0) or 0)
+        bucket["input_tokens"] += int(row.get("input_tokens", 0) or 0)
+        bucket["output_tokens"] += int(row.get("output_tokens", 0) or 0)
+        bucket["total_tokens"] += int(row.get("total_tokens", 0) or 0)
+
     return sorted(
         grouped.values(),
         key=lambda item: (-int(item["total_tokens"]), str(item["delegation"])),
     )
+
+
+def record_delegation_outcome(
+    provider: object,
+    delegation: Delegation,
+    *,
+    steps: int,
+    tool_calls: int,
+    duration_seconds: float,
+    status: str = "completed",
+) -> None:
+    """Report a delegation's outcome to the tracker wrapping ``provider``.
+
+    A provider that is not usage-tracked — a plain stub in tests, custom
+    wiring — makes this a no-op rather than an error: observability must never
+    take a run down.
+    """
+    if isinstance(provider, UsageTracker):
+        provider.record_delegation(
+            delegation,
+            steps=steps,
+            tool_calls=tool_calls,
+            duration_seconds=duration_seconds,
+            status=status,
+        )
 
 
 def read_usage(path: Path | str) -> list[dict[str, Any]]:
@@ -281,6 +364,7 @@ def parse_natural_time(reference: str) -> str | None:
 
 
 __all__ = [
+    "DELEGATION_EVENT",
     "DELEGATION_FIELD",
     "USAGE_FILE",
     "Delegation",
@@ -289,5 +373,6 @@ __all__ = [
     "group_delegations",
     "parse_natural_time",
     "read_usage",
+    "record_delegation_outcome",
     "track_delegation",
 ]

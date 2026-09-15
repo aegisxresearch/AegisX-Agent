@@ -11,6 +11,7 @@ from support import EchoTool, ScriptedLLM, SpyTool, run
 
 from aegisx_agent.core.config import AgentConfig
 from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, Role, ToolCall
+from aegisx_agent.observability.usage import USAGE_FILE, UsageTracker, read_usage
 from aegisx_agent.security.permissions import PermissionGate, PermissionMode
 from aegisx_agent.tools.calculator import CalculatorTool
 from aegisx_agent.tools.registry import ToolRegistry
@@ -395,6 +396,80 @@ def test_nested_spawner_inherits_the_progress_level() -> None:
     nested = tool._child_registry([]).get("spawn_subagent")
     assert isinstance(nested, SubagentTool)
     assert nested.progress is SubagentProgress.QUIET
+
+
+def _summary_rows(tmp_path: Any) -> list[dict[str, Any]]:
+    """The delegation closing lines the tracker wrote, in file order."""
+    return [
+        row
+        for row in read_usage(tmp_path / USAGE_FILE)
+        if row.get("event") == "delegation"
+    ]
+
+
+def test_a_tracked_delegation_records_its_outcome(tmp_path: Any) -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    llm = UsageTracker(
+        ScriptedLLM(
+            [
+                _tool_call("c1", "echo", '{"text": "hi"}'),
+                _text("child final answer"),
+            ]
+        ),
+        tmp_path / USAGE_FILE,
+    )
+    tool = _tool(llm, registry)
+
+    result = run(tool.execute(task="  say   hi ", tools="echo"))
+
+    rows = _summary_rows(tmp_path)
+    assert len(rows) == 1
+    # The log line names the same delegation the tool result reports.
+    assert rows[0]["delegation"] == result.metadata["delegation"]
+    assert rows[0]["task"] == "say hi"  # whitespace collapsed for the log
+    assert rows[0]["steps"] == 2
+    assert rows[0]["tool_calls"] == 1
+    assert rows[0]["duration_seconds"] > 0
+    assert rows[0]["status"] == "completed"
+
+
+def test_a_timed_out_delegation_is_logged_as_a_timeout(tmp_path: Any) -> None:
+    tracker = UsageTracker(SlowLLM(), tmp_path / USAGE_FILE)
+    tool = _tool(tracker, ToolRegistry(), timeout=0.05)
+
+    result = run(tool.execute(task="hang"))
+
+    assert result.status.value == "timeout"
+    rows = _summary_rows(tmp_path)
+    assert [row["status"] for row in rows] == ["timeout"]
+    assert rows[0]["delegation"] == result.metadata["delegation"]
+    assert rows[0]["duration_seconds"] >= 0.05
+
+
+def test_a_delegation_that_hits_its_budget_is_logged_as_budget(tmp_path: Any) -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    tracker = UsageTracker(
+        ScriptedLLM(
+            [
+                _tool_call("1", "echo", '{"text": "a"}'),
+                _tool_call("2", "echo", '{"text": "b"}'),
+                # The cap forces a wrap-up call, so the script needs a spare.
+                _text("stopping here"),
+            ]
+        ),
+        tmp_path / USAGE_FILE,
+    )
+    tool = _tool(tracker, registry, max_steps=2)
+
+    run(tool.execute(task="loop forever"))
+
+    rows = _summary_rows(tmp_path)
+    # A child cut short on its cap is not a completed job, and the log says so.
+    assert rows[0]["status"] == "budget"
+    assert rows[0]["tool_calls"] == 2
+    assert rows[0]["steps"] >= 1
 
 
 def test_progress_level_is_configurable_through_the_environment(

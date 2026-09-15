@@ -47,6 +47,30 @@ def _format_tokens(count: int) -> str:
     return f"{count:,}"
 
 
+def _format_seconds(value: float) -> str:
+    """Human wall-clock duration for table cells."""
+    if value <= 0:
+        return "—"
+    if value < 60:
+        return f"{value:.1f}s"
+    if value < 3600:
+        minutes, seconds = divmod(int(value), 60)
+        return f"{minutes}m {seconds:02d}s"
+    hours, remainder = divmod(int(value), 3600)
+    return f"{hours}h {remainder // 60:02d}m"
+
+
+_STATUS_STYLES = {"completed": "green", "budget": "yellow", "timeout": "yellow"}
+
+
+def _format_delegation_status(status: str) -> str:
+    """Colour a delegation outcome, so a cut-short run stands out."""
+    if not status:
+        return "[dim]running?[/dim]"
+    style = _STATUS_STYLES.get(status, "red")
+    return f"[{style}]{status}[/{style}]"
+
+
 def _usage_entries(
     agent: AegisXAgent,
     period: str | None = None,
@@ -74,20 +98,35 @@ def _usage_entries(
 
 
 def _render_delegations(delegations: list[dict[str, Any]]) -> None:
-    """Print one row per delegation — the subagent cost breakdown."""
+    """Print one row per delegation — what it cost and what it did.
+
+    ``steps`` and ``duration_seconds`` come from the delegation's closing
+    summary row, so a delegation whose log predates that line shows ``—``
+    rather than a misleading zero.
+    """
     table = Table(title="🤖 Per delegation (subagent cost)", border_style="magenta")
+    # Every column is no_wrap: on a narrow terminal rich would otherwise wrap
+    # the task across five lines and every row would balloon. Truncating the
+    # task keeps one row per delegation, which is the point of the view.
     table.add_column("Delegation", style="dim", no_wrap=True)
-    table.add_column("Depth", justify="right")
-    table.add_column("Task", overflow="ellipsis", max_width=44)
-    table.add_column("Calls", justify="right")
-    table.add_column("Tokens", justify="right", style="bold")
+    table.add_column("Depth", justify="right", no_wrap=True)
+    table.add_column("Task", overflow="ellipsis", max_width=34, no_wrap=True)
+    table.add_column("Steps", justify="right", no_wrap=True)
+    table.add_column("Calls", justify="right", no_wrap=True)
+    table.add_column("Tokens", justify="right", style="bold", no_wrap=True)
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
     for item in delegations[:MAX_DELEGATION_ROWS]:
+        steps = int(item["steps"])
         table.add_row(
             str(item["delegation"]),
             str(item["depth"]),
             str(item["task"]) or "(unnamed)",
+            str(steps) if steps else "—",
             str(item["calls"]),
             _format_tokens(int(item["total_tokens"])),
+            _format_seconds(float(item["duration_seconds"])),
+            _format_delegation_status(str(item["status"])),
         )
     console.print(table)
     hidden = len(delegations) - MAX_DELEGATION_ROWS
@@ -120,6 +159,8 @@ def _print_usage_summary(
 
     models: dict[str, int] = {}
     for entry in entries:
+        if entry.get("event"):
+            continue  # a delegation summary row has no model and no tokens
         model_name = str(entry.get("model", "unknown"))
         models[model_name] = models.get(model_name, 0) + int(entry.get("total_tokens", 0) or 0)
 
