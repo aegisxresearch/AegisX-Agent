@@ -121,7 +121,8 @@ class AgentConfig(BaseSettings):
         default=SubagentProgress.STEPS,
         description=(
             "Subagent telemetry level: 'quiet' (silent), 'steps' (start, "
-            "per-call, timeout lines), or 'verbose' (also the closing cost line)"
+            "per-call, outcome lines), or 'verbose' (also the delegation id "
+            "on the outcome line)"
         ),
     )
 
