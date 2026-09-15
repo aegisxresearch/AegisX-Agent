@@ -117,10 +117,8 @@ async def _collect(stream) -> list[str]:
     return chunks
 
 
-def test_streaming_turn_surfaces_subagent_progress_and_cost(fake_llm, tmp_path) -> None:
-    agent = _agent(fake_llm, tmp_path)
-
-    # Parent turns stream (SSE); the child's loop is non-streaming (JSON).
+def _script_one_delegation(fake_llm: FakeLLMServer) -> None:
+    """Parent delegates, child computes, parent wraps up (SSE for the parent)."""
     fake_llm.script(
         sse_tool_call(
             "call_1", "spawn_subagent", '{"task": "compute 2+2", "tools": "calculator"}'
@@ -130,16 +128,43 @@ def test_streaming_turn_surfaces_subagent_progress_and_cost(fake_llm, tmp_path) 
         sse_text(["The answer is 4."]),
     )
 
+
+def test_streaming_turn_surfaces_subagent_steps_by_default(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path)
+    _script_one_delegation(fake_llm)
+
     chunks = run(_collect(agent.chat_stream("delegate a calculation")))
     text = "".join(chunks)
 
-    # Start line, per-step calls, and the cost line all reached the stream.
+    # Start line and per-step calls reached the stream; the cost line is the
+    # one thing the default level leaves out.
     assert "subagent (depth 1, budget 8): compute 2+2" in text
     assert "subagent step: calculator \u2705" in text
-    assert "subagent (depth 1) done:" in text
-    assert "tokens" in text
+    assert "subagent (depth 1) done:" not in text
     # The child's own answer travels as tool-result data (not stream text);
     # the parent's wrap-up is what streams to the user.
+    assert "The answer is 4." in text
+
+
+def test_verbose_progress_streams_the_cost_line(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path, subagent_progress="verbose")
+    _script_one_delegation(fake_llm)
+
+    text = "".join(run(_collect(agent.chat_stream("delegate a calculation"))))
+
+    assert "subagent (depth 1) done:" in text
+    assert "tokens" in text
+
+
+def test_quiet_progress_keeps_the_delegation_off_the_stream(fake_llm, tmp_path) -> None:
+    agent = _agent(fake_llm, tmp_path, subagent_progress="quiet")
+    _script_one_delegation(fake_llm)
+
+    text = "".join(run(_collect(agent.chat_stream("delegate a calculation"))))
+
+    # No telemetry at all, but the turn itself still completes normally.
+    assert "subagent (depth 1" not in text
+    assert "subagent step:" not in text
     assert "The answer is 4." in text
 
 

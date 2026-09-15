@@ -466,24 +466,34 @@ AEGISX_SUBAGENT_MAX_STEPS=8      # iterasi per eksekusi anak
 AEGISX_SUBAGENT_MAX_DEPTH=2      # generasi nesting
 AEGISX_SUBAGENT_TIMEOUT=120      # detik per eksekusi anak
 AEGISX_SUBAGENT_ENABLED=true     # set false untuk menghapus tool ini
+AEGISX_SUBAGENT_PROGRESS=steps   # quiet | steps | verbose
 ```
 
 Token anak dicatat oleh usage tracker dengan run id yang sama dengan induk,
 sehingga `aegisx usage` melaporkan biaya penuh tugas yang didelegasikan.
 
 **Telemetri langsung.** Saat streaming (`aegisx chat`), delegasi mencetak
-kemajuannya secara langsung — baris mulai, setiap pemanggilan tool anak, dan
-baris biaya — sehingga subagen yang berjalan lama tidak terlihat seperti
-hang:
+kemajuannya secara langsung, sehingga subagen yang berjalan lama tidak
+terlihat seperti hang:
 
 ```text
 ⏵ subagent (depth 1, budget 8): compute 2+2
   ⏳ subagent step: calculator ✅
-⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s
+⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s      # hanya verbose
 🔧 spawn_subagent: ✅
 ```
 
-Delegasi bersarang melaporkan event bertanda kedalaman ke stream yang sama.
+Seberapa banyak yang dicetak diatur oleh `AEGISX_SUBAGENT_PROGRESS`:
+
+| Level | Yang masuk ke stream |
+|-------|----------------------|
+| `quiet` | Tidak ada — delegasi tidak terlihat sampai selesai. |
+| `steps` (default) | Baris mulai, satu baris per pemanggilan tool anak, baris timeout. |
+| `verbose` | Semua di atas, plus baris biaya penutup (tool call, token, durasi). |
+
+Delegasi bersarang melaporkan event bertanda kedalaman ke stream yang sama dan
+mewarisi level induknya; tiap level juga berlaku untuk kegagalan dan timeout,
+jadi `quiet` tetap senyap meskipun anak gagal.
 
 ## 🏗️ Arsitektur
 

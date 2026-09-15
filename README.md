@@ -381,6 +381,7 @@ AEGISX_PROJECT_CONTEXT_ENABLED=true    # cwd, stack, git, AGENTS.md in the promp
 AEGISX_SUBAGENT_MAX_STEPS=8
 AEGISX_SUBAGENT_MAX_DEPTH=2
 AEGISX_SUBAGENT_TIMEOUT=120
+AEGISX_SUBAGENT_PROGRESS=steps     # quiet | steps | verbose
 
 # Permissions
 AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
@@ -476,23 +477,33 @@ AEGISX_SUBAGENT_MAX_STEPS=8      # iterations per child run
 AEGISX_SUBAGENT_MAX_DEPTH=2      # generations of nesting
 AEGISX_SUBAGENT_TIMEOUT=120      # wall-clock seconds per child run
 AEGISX_SUBAGENT_ENABLED=true     # set false to remove the tool entirely
+AEGISX_SUBAGENT_PROGRESS=steps   # quiet | steps | verbose
 ```
 
 Child tokens are recorded by the usage tracker under the same run id as the
 parent's, so `aegisx usage` reports the full cost of a delegated task.
 
 **Live telemetry.** While streaming (`aegisx chat`), a delegation prints its
-progress as it happens — start line, each child tool call, and a cost line —
-so a long subagent never looks like a hang:
+progress as it happens, so a long subagent never looks like a hang:
 
 ```text
 ⏵ subagent (depth 1, budget 8): compute 2+2
   ⏳ subagent step: calculator ✅
-⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s
+⏵ subagent (depth 1) done: 1 tool calls, 10 tokens, 0.1s      # verbose only
 🔧 spawn_subagent: ✅
 ```
 
-Nested delegations report depth-tagged events to the same stream.
+How much it prints is `AEGISX_SUBAGENT_PROGRESS`:
+
+| Level | What reaches the stream |
+|-------|-------------------------|
+| `quiet` | Nothing — the delegation is invisible until it returns. |
+| `steps` (default) | Start line, one line per child tool call, timeout line. |
+| `verbose` | Everything above, plus the closing cost line (tool calls, tokens, duration). |
+
+Nested delegations report depth-tagged events to the same stream and inherit
+the parent's level; each level applies to failures and timeouts too, so
+`quiet` stays silent even when a child fails.
 
 ## 🏗️ Architecture
 

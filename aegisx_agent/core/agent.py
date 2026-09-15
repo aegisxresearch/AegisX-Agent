@@ -246,6 +246,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                     max_steps=self.config.subagent_max_steps,
                     max_depth=self.config.subagent_max_depth,
                     timeout=self.config.subagent_timeout,
+                    progress=self.config.subagent_progress,
                 )
             )
 

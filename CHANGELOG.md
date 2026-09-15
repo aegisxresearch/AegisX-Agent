@@ -27,7 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distinct line on timeout. `AgenticLoop.run` now accepts an
   `on_tool_result` callback so non-streaming child loops can report progress;
   nested delegations forward depth-tagged events to the same observer, and a
-  broken observer can never break a run.
+  broken observer can never break a run. The volume is a policy:
+  `AEGISX_SUBAGENT_PROGRESS` selects `quiet` (silent), `steps` (default:
+  start, per-call, and timeout lines), or `verbose` (adds the cost line).
+  Nested spawners inherit the level, and unknown values are rejected at
+  config load.
 - **MCP client support (Model Context Protocol).** AegisX can now consume
   tools from any MCP server over stdio via the official `mcp` SDK
   (`pip install "aegisx-agent[mcp]"`). New `aegisx_agent/mcp/` package:

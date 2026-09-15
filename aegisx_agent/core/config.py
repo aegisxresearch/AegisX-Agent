@@ -10,6 +10,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aegisx_agent.security.permissions import PermissionMode
+from aegisx_agent.tools.subagent import SubagentProgress
 
 
 def _split_tool_list(value: str) -> list[str]:
@@ -115,6 +116,13 @@ class AgentConfig(BaseSettings):
     )
     subagent_timeout: float = Field(
         default=120.0, description="Wall-clock timeout per subagent run, in seconds"
+    )
+    subagent_progress: SubagentProgress = Field(
+        default=SubagentProgress.STEPS,
+        description=(
+            "Subagent telemetry level: 'quiet' (silent), 'steps' (start, "
+            "per-call, timeout lines), or 'verbose' (also the closing cost line)"
+        ),
     )
 
     # === Safety settings ===

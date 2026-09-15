@@ -18,6 +18,10 @@ subset of the parent:
 - **Cost**: the child loops over the parent's (usage-tracked) LLM via a
   factory resolved at call time, so child tokens land in the same usage
   log as the parent's, under the same run id.
+- **Telemetry**: how much progress a delegation reports is a policy, not a
+  constant. ``SubagentProgress`` selects it (``quiet`` / ``steps`` /
+  ``verbose``, set with ``AEGISX_SUBAGENT_PROGRESS``), and nested spawners
+  inherit the parent's level.
 
 The spawn itself is ``SAFE``: it grants no capability the caller did not
 already have, because each actual side effect is gated on its own tool.
@@ -29,6 +33,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from aegisx_agent.core.loop import AgenticLoop
@@ -73,6 +78,33 @@ class SubagentResult:
     budget_exhausted: bool
 
 
+class SubagentProgress(str, Enum):
+    """How much of a delegation's progress is reported to the observer.
+
+    ``QUIET``
+        Nothing at all — a delegation is invisible until it returns.
+    ``STEPS``
+        The start line, one line per child tool call, and the timeout line:
+        enough to see that work is happening without the running cost.
+    ``VERBOSE``
+        Everything ``STEPS`` shows, plus the closing cost line (tool calls,
+        tokens, duration).
+    """
+
+    QUIET = "quiet"
+    STEPS = "steps"
+    VERBOSE = "verbose"
+
+
+#: Verbosity ordering, so an event can declare the *least* noisy level that
+#: still shows it and every quieter level stays silent.
+_PROGRESS_RANK: dict[SubagentProgress, int] = {
+    SubagentProgress.QUIET: 0,
+    SubagentProgress.STEPS: 1,
+    SubagentProgress.VERBOSE: 2,
+}
+
+
 class SubagentTool(Tool):
     """Run a nested agent on a task and return its final answer.
 
@@ -94,6 +126,7 @@ class SubagentTool(Tool):
         temperature: float = 0.3,
         max_tokens: int = 4096,
         on_progress: Callable[[str], None] | None = None,
+        progress: SubagentProgress | str = SubagentProgress.STEPS,
     ) -> None:
         super().__init__(
             name="spawn_subagent",
@@ -132,6 +165,7 @@ class SubagentTool(Tool):
         self._parent_registry = parent_registry
         self._gate = gate
         self._on_progress = on_progress
+        self.progress = SubagentProgress(progress)
         self.max_steps = max_steps
         self.max_depth = max_depth
         self.timeout = timeout
@@ -200,14 +234,24 @@ class SubagentTool(Tool):
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     on_progress=self._on_progress,
+                    progress=self.progress,
                 )
             )
         return registry
 
     # === Execution ====================================================== #
 
-    def _emit(self, event: str) -> None:
-        """Forward one progress line to the observer, if there is one."""
+    def _emit(
+        self, event: str, minimum: SubagentProgress = SubagentProgress.STEPS
+    ) -> None:
+        """Forward one progress line, unless the configured level hides it.
+
+        ``minimum`` is the least verbose level that still shows the event, so
+        the same call sites serve every mode: ``quiet`` silences them all and
+        ``verbose`` reveals the cost line on top of the step lines.
+        """
+        if _PROGRESS_RANK[self.progress] < _PROGRESS_RANK[minimum]:
+            return
         if self._on_progress is not None:
             try:
                 self._on_progress(event)
@@ -286,7 +330,7 @@ class SubagentTool(Tool):
             f"{trace.total_tool_calls} tool calls, "
             f"{trace.total_tokens} tokens, {duration:.1f}s"
         )
-        self._emit(cost)
+        self._emit(cost, SubagentProgress.VERBOSE)
 
         if note:
             final = f"[subagent note: {note}]\n{final}"

@@ -5,14 +5,18 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
 from support import EchoTool, ScriptedLLM, SpyTool, run
 
+from aegisx_agent.core.config import AgentConfig
 from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, Role, ToolCall
 from aegisx_agent.security.permissions import PermissionGate, PermissionMode
 from aegisx_agent.tools.calculator import CalculatorTool
 from aegisx_agent.tools.registry import ToolRegistry
 from aegisx_agent.tools.subagent import (
     DEFAULT_SUBAGENT_TOOLS,
+    SubagentProgress,
     SubagentTool,
 )
 
@@ -250,27 +254,6 @@ def test_nested_child_registry_only_narrows() -> None:
     assert note == ""
 
 
-def test_progress_hook_receives_start_steps_and_cost_events() -> None:
-    registry = ToolRegistry()
-    registry.register(EchoTool())
-    llm = ScriptedLLM(
-        [
-            _tool_call("c1", "echo", '{"text": "hi"}'),
-            _text("child final answer"),
-        ]
-    )
-    events: list[str] = []
-    tool = _tool(llm, registry, on_progress=events.append)
-
-    result = run(tool.execute(task="say hi", tools="echo"))
-
-    assert result.is_success
-    assert len(events) == 3
-    assert events[0].startswith("⏵ subagent (depth 1, budget 4): say hi")
-    assert events[1] == "  ⏳ subagent step: echo ✅"
-    assert events[2] == "⏵ subagent (depth 1) done: 1 tool calls, 9 tokens, 0.0s"
-
-
 def test_progress_hook_reports_failures_timeouts_and_swallows_observer_errors() -> None:
     registry = ToolRegistry()
     registry.register(EchoTool())
@@ -327,6 +310,101 @@ def test_no_hook_means_no_events_and_plain_runs_stay_quiet() -> None:
 
     result = run(tool.execute(task="t", tools="echo"))
     assert result.is_success  # would raise if _emit touched a missing hook
+
+
+def _delegation_events(progress: Any) -> tuple[list[str], Any]:
+    """Run one echoing delegation at ``progress`` and return its events."""
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    llm = ScriptedLLM(
+        [
+            _tool_call("c1", "echo", '{"text": "hi"}'),
+            _text("child final answer"),
+        ]
+    )
+    events: list[str] = []
+    tool = _tool(llm, registry, on_progress=events.append, progress=progress)
+    return events, run(tool.execute(task="say hi", tools="echo"))
+
+
+def test_progress_quiet_silences_every_delegation_event() -> None:
+    events, result = _delegation_events(SubagentProgress.QUIET)
+
+    assert result.is_success
+    # Silence is telemetry-only: the work still happens and still returns.
+    assert result.output == "child final answer"
+    assert events == []
+
+
+def test_progress_steps_reports_the_run_without_the_cost_line() -> None:
+    events, result = _delegation_events(SubagentProgress.STEPS)
+
+    assert result.is_success
+    assert len(events) == 2
+    assert events[0].startswith("⏵ subagent (depth 1, budget 4): say hi")
+    assert events[1] == "  ⏳ subagent step: echo ✅"
+    assert not any("done:" in event for event in events)
+
+
+def test_progress_verbose_adds_the_cost_line_on_top_of_the_steps() -> None:
+    events, result = _delegation_events(SubagentProgress.VERBOSE)
+
+    assert result.is_success
+    assert len(events) == 3
+    assert events[-1] == "⏵ subagent (depth 1) done: 1 tool calls, 9 tokens, 0.0s"
+
+
+def test_progress_levels_apply_to_failure_and_timeout_events() -> None:
+    registry = ToolRegistry()
+    timeout_events: list[str] = []
+    quiet = _tool(
+        SlowLLM(), registry, on_progress=timeout_events.append,
+        timeout=0.05, progress="quiet",
+    )
+    run(quiet.execute(task="hang"))
+    assert timeout_events == []
+
+    steps_events: list[str] = []
+    steps = _tool(
+        SlowLLM(), registry, on_progress=steps_events.append,
+        timeout=0.05, progress="steps",
+    )
+    run(steps.execute(task="hang"))
+    assert steps_events[-1].startswith("  ⏹ subagent (depth 1) timed out after 0.05s")
+
+
+def test_progress_accepts_strings_and_rejects_unknown_levels() -> None:
+    llm_factory = lambda: ScriptedLLM([_text("x")])  # noqa: E731
+
+    tool = SubagentTool(llm_factory=llm_factory, progress="verbose")
+    assert tool.progress is SubagentProgress.VERBOSE
+    assert SubagentTool(llm_factory=llm_factory).progress is SubagentProgress.STEPS
+
+    with pytest.raises(ValueError):
+        SubagentTool(llm_factory=llm_factory, progress="loud")
+
+
+def test_nested_spawner_inherits_the_progress_level() -> None:
+    registry = ToolRegistry()
+    llm = ScriptedLLM([_text("leaf")])
+    tool = _tool(llm, registry, max_depth=2, progress="quiet")
+
+    nested = tool._child_registry([]).get("spawn_subagent")
+    assert isinstance(nested, SubagentTool)
+    assert nested.progress is SubagentProgress.QUIET
+
+
+def test_progress_level_is_configurable_through_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert AgentConfig().subagent_progress is SubagentProgress.STEPS
+
+    monkeypatch.setenv("AEGISX_SUBAGENT_PROGRESS", "verbose")
+    assert AgentConfig().subagent_progress is SubagentProgress.VERBOSE
+
+    monkeypatch.setenv("AEGISX_SUBAGENT_PROGRESS", "loud")
+    with pytest.raises(ValidationError):
+        AgentConfig()
 
 
 def test_spawn_tool_schema_and_constructor_validation() -> None:
