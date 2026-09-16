@@ -14,6 +14,8 @@
 #   2. creates a virtualenv (uv if available, otherwise python3 -m venv)
 #   3. pip-installs the package in editable mode
 #   4. writes an `aegisx` wrapper into ~/.local/bin
+#   5. cleans stale `aegisx` aliases and PATH lines from shell rc files
+#      (leftovers from earlier manual installs shadow the fresh wrapper)
 #
 # The wrapper delegates to the repo's own `aegisx` launcher instead of
 # symlinking it, because the launcher resolves its repo root from the path
@@ -59,6 +61,72 @@ ok()    { printf '%s\n' "${C_OK}✓${C_OFF} $*"; }
 err()   { printf '%s\n' "${C_ERR}error:${C_OFF} $*" >&2; }
 die()   { err "$*"; exit 1; }
 ask()   { [ "$ASSUME_YES" = 1 ] && return 0; read -r -p "$1 [y/N] " reply; [ "${reply:-}" = y ] || [ "${reply:-}" = Y ]; }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stale rc cleanup: an earlier manual install often left shell rc lines —
+# `alias aegisx=...` or `export PATH=".../aegisx.../bin:$PATH"` — pointing at
+# directories that no longer exist. An alias shadows the wrapper on PATH, so
+# a stale one makes every `aegisx` invocation fail with "No such file or
+# directory" even though the fresh install works. Remove only provably dead
+# lines (their target is missing), never comments or lines that point at this
+# install, and keep a timestamped backup of every touched rc file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+RC_FILES=("$HOME/.bashrc" "$HOME/.bash_aliases" "$HOME/.profile" "$HOME/.zshrc")
+
+clean_stale_rc_entries() {
+  local rc numbers n line trimmed trimmed_lc target dir removed backup
+  for rc in "${RC_FILES[@]}"; do
+    [ -f "$rc" ] || continue
+    grep -iq "aegisx" "$rc" || continue
+    numbers=""
+    removed=0
+    while IFS=: read -r n line; do
+      trimmed="${line#\"${line%%[![:space:]]*}\"}"
+      trimmed_lc="${trimmed,,}"
+      case "$trimmed_lc" in
+        \#*) continue ;;                       # comments are left alone
+        *alias\ aegisx=*)
+          target="${trimmed#*alias aegisx=}"
+          # Quoted value: cut at the first matching close quote, so a trailing
+          # inline comment is ignored; unquoted: cut at the first space.
+          case "$target" in
+            \"*) target="${target#\"}"; target="${target%%\"*}" ;;
+            \'*) target="${target#\'}"; target="${target%%\'*}" ;;
+            *)  target="${target%%[[:space:]]*}" ;;
+          esac
+          target="${target/#\~/$HOME}"
+          case "${target,,}" in *aegisx*) ;; *) continue ;; esac
+          [ -n "$target" ] && [ -e "$target" ] && continue
+          ;;
+        *export\ PATH=*|*path=*)
+          dir="${trimmed#*PATH=}"
+          [ "$dir" = "$trimmed" ] && dir="${trimmed#*path=}"
+          dir="${dir#\"}"; dir="${dir#\'}"      # opening quote
+          dir="${dir%%:*}"                       # first PATH segment
+          dir="${dir%\"}"; dir="${dir%\'}"      # closing quote / stray
+          dir="${dir//\$HOME/$HOME}"
+          dir="${dir/#\~/$HOME}"
+          case "${dir,,}" in *aegisx*) ;; *) continue ;; esac
+          [ "$dir" = "$BIN_DIR" ] && continue   # this install's own entry stays
+          [ -e "$dir" ] && continue
+          ;;
+        *) continue ;;
+      esac
+      numbers="${numbers:+$numbers }$n"
+      printf '  %s:%s: %s\n' "$rc" "$n" "$line"
+      removed=$((removed + 1))
+    done < <(grep -in "aegisx" "$rc")
+    if [ "$removed" -gt 0 ]; then
+      backup="$rc.bak-aegisx-$(date +%Y%m%d-%H%M%S)"
+      cp "$rc" "$backup"
+      for n in $(printf '%s\n' "$numbers" | tr ' ' '\n' | sort -rn); do
+        sed -i "${n}d" "$rc"
+      done
+      ok "Removed $removed stale aegisx line(s) from $rc (backup: $backup)"
+    fi
+  done
+}
 
 usage() {
   cat <<EOF
@@ -121,6 +189,8 @@ if [ "$UNINSTALL" = 1 ]; then
       info "Kept $DATA_DIR"
     fi
   fi
+  # Removing the install can strand rc lines that pointed at it; sweep those.
+  clean_stale_rc_entries
   ok "AegisX Agent uninstalled"
   exit 0
 fi
@@ -184,13 +254,15 @@ cd "$INSTALL_DIR"
 
 if have uv; then
   info "Creating venv with uv (python $PYTHON_VERSION; downloaded automatically if missing)"
-  uv venv --python "$PYTHON_VERSION" "$VENV"
+  # --clear: a re-run replaces the existing venv instead of failing/prompting —
+  # this is what makes "re-run the installer to update" work unattended.
+  uv venv --clear --python "$PYTHON_VERSION" "$VENV"
 else
   have python3 || die "python3 not found. Install Python >= 3.10 or uv (https://docs.astral.sh/uv/)"
   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
     || die "python3 is $(python3 -V 2>&1 | cut -d' ' -f2); AegisX needs >= 3.10. Or install uv and rerun."
   info "Creating venv with python3 -m venv"
-  python3 -m venv "$VENV"
+  python3 -m venv --clear "$VENV"
 fi
 
 install_deps_into_venv
@@ -215,6 +287,10 @@ exec "$INSTALL_DIR/aegisx" "\$@"
 WRAPPER
 chmod +x "$BIN_DIR/aegisx"
 ok "Wrote $BIN_DIR/aegisx"
+
+# A stale `alias aegisx=...` in an rc file shadows this wrapper, so sweep rc
+# files for provably dead entries before telling the user everything is ready.
+clean_stale_rc_entries
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
