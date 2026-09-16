@@ -185,3 +185,64 @@ def test_anthropic_tool_calls_are_parsed_from_the_stream(
     assert tool_result_turn["content"][0]["type"] == "tool_result"
     assert tool_result_turn["content"][0]["tool_use_id"] == "toolu_s1"
     assert tool_result_turn["content"][0]["content"] == "6*7 = 42"
+
+
+def test_stream_announces_each_tool_call_before_it_runs(
+    fake_llm: FakeLLMServer, tmp_path
+) -> None:
+    """The loop fires on_tool_start with the raw wire arguments."""
+    fake_llm.script(
+        sse_tool_call("call_s3", "file_ops", '{"action": "write", "path": "login.html"}'),
+        sse_text(["done"]),
+    )
+    agent = _agent(fake_llm, tmp_path)
+
+    starts: list[tuple[str, Any]] = []
+    original_run = agent.agent_loop._run
+
+    async def spy_run(*args: Any, **kwargs: Any) -> Any:
+        callback = kwargs.get("on_tool_start")
+
+        def on_tool_start(name: str, arguments: Any) -> None:
+            starts.append((name, arguments))
+            if callback is not None:
+                callback(name, arguments)
+
+        kwargs["on_tool_start"] = on_tool_start
+        return await original_run(*args, **kwargs)
+
+    agent.agent_loop._run = spy_run  # type: ignore[method-assign]
+
+    chunks = run(_collect(agent.chat_stream("make login page")))
+    text = "".join(chunks)
+
+    # The hook fired with the tool's raw wire arguments, before execution.
+    assert starts == [("file_ops", '{"action": "write", "path": "login.html"}')]
+    # The stream carried the start line (delegating to the agent's formatter)
+    # and the completion marker after execution.
+    assert "file_ops → login.html" in text
+    assert "file_ops: ✅" in text
+
+
+def test_tool_status_line_surfaces_the_skim_argument() -> None:
+    """The status line names the tool and the argument a human cares about."""
+    from aegisx_agent.core.agent import _tool_status_line
+
+    line = _tool_status_line("file_ops", '{"action": "write", "path": "login.html"}')
+    assert line == "📁 file_ops → login.html"
+
+    # Malformed JSON degrades to a plain tool-name line.
+    assert _tool_status_line("file_ops", "not json") == "📁 file_ops"
+    # Unknown tools get the generic glyph.
+    assert _tool_status_line("mystery", None) == "🔧 mystery"
+
+
+def test_status_lines_do_not_arrive_for_toolless_turns(
+    fake_llm: FakeLLMServer, tmp_path
+) -> None:
+    fake_llm.script(sse_text(["Just chatting."]))
+    agent = _agent(fake_llm, tmp_path)
+
+    chunks = run(_collect(agent.chat_stream("hi again")))
+
+    assert "".join(chunks) == "Just chatting."

@@ -38,6 +38,59 @@ from aegisx_agent.tools.skill_tool import SkillTool
 from aegisx_agent.tools.subagent import SubagentTool
 from aegisx_agent.tools.web_search import WebSearchTool
 
+#: Glyph per tool, so a stream of calls reads like a status feed.
+_TOOL_ICONS = {
+    "calculator": "🔢", "datetime": "📅", "web_search": "🔍",
+    "execute_code": "🐍", "file_ops": "📁", "editor": "✎",
+    "shell": "💻", "api_call": "🌐", "db_query": "🗄️",
+    "web_scrape": "🕷️", "rag_search": "📚", "run_tests": "🧪",
+    "codebase": "🗂️", "git": "📦", "spawn_subagent": "👥",
+}
+
+#: Primary argument per tool — the part a human skims to see what is running.
+_TOOL_SUMMARY_KEYS = {
+    "file_ops": "path",
+    "editor": "path",
+    "shell": "command",
+    "execute_code": "language",
+    "run_tests": "path",
+    "codebase": "query",
+    "web_search": "query",
+    "web_scrape": "url",
+    "api_call": "url",
+    "db_query": "query",
+    "calculator": "expression",
+    "git": "action",
+    "spawn_subagent": "task",
+}
+
+
+def _tool_status_line(name: str, arguments: dict[str, Any] | str) -> str:
+    """One skim line per tool call: ``✎ editor → src/app.py``.
+
+    The tool call arguments arrive raw from the model (a JSON string on the
+    wire); surface the one argument a human cares about instead of just the
+    tool name. Malformed JSON degrades to a plain tool-name line.
+    """
+    icon = _TOOL_ICONS.get(name, "🔧")
+    key = _TOOL_SUMMARY_KEYS.get(name)
+    args: dict[str, Any] = {}
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            if isinstance(parsed, dict):
+                args = parsed
+        except ValueError:
+            args = {}
+    elif isinstance(arguments, dict):
+        args = arguments
+    detail = ""
+    if key:
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            detail = value.strip().replace("\n", " ")[:60]
+    return f"{icon} {name}" + (f" → {detail}" if detail else "")
+
 
 class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
     """Super-powered Agentic AI.
@@ -497,6 +550,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             def _on_chunk(piece: str) -> None:
                 queue.put_nowait(piece)
 
+            def _on_tool_start(name: str, arguments: dict[str, Any]) -> None:
+                queue.put_nowait(f"\n{_tool_status_line(name, arguments)}")
+
             def _on_tool_result(name: str, success: bool) -> None:
                 queue.put_nowait(f"\n🔧 {name}: {'✅' if success else '❌'}\n")
 
@@ -512,6 +568,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                         tool_schemas=tool_schemas,
                         on_chunk=_on_chunk,
                         on_tool_result=_on_tool_result,
+                        on_tool_start=_on_tool_start,
                     )
                 finally:
                     queue.put_nowait(None)

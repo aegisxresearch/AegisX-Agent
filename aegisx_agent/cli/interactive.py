@@ -87,6 +87,45 @@ class AnimatedProgress:
         return f"  {frame} {self._message}"
 
 
+class StreamLinePrinter:
+    """Write a streamed turn line-by-line without breaking prompts.
+
+    Emits ``🤖 AegisX:`` before the first chunk and dims tool-status lines
+    so tool activity reads as a feed. It never runs on a background thread
+    and never rewrites a line with ``\r`` — the old spinner did both, which
+    overwrote the ``🔐 Approval required`` panel while the permission gate
+    waited for an answer, forcing blind y/n input.
+    """
+
+    _STATUS_MARKERS = (
+        "🔧", "📁", "💻", "🐍", "🔍", "🌐", "🗄️", "🕷️",
+        "📚", "✎", "🧪", "🗂️", "📦", "👥", "🔢", "📅",
+    )
+
+    def __init__(self) -> None:
+        self._started = False
+
+    def write(self, chunk: str) -> None:
+        if not self._started:
+            self._started = True
+            sys.stdout.write("🤖 AegisX: ")
+        if chunk.startswith("\n") and chunk[1:].startswith(self._STATUS_MARKERS):
+            # A tool-status line: newline separation + dim on a TTY.
+            body = chunk[1:].rstrip("\n")
+            if sys.stdout.isatty():
+                sys.stdout.write(f"\n\033[2m{body}\033[0m\n")
+            else:
+                sys.stdout.write(f"\n{body}\n")
+        else:
+            sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    def finish(self) -> None:
+        if self._started:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
+
 # ═══════════════════════════════════════════════════
 #  SLASH COMMANDS
 # ═══════════════════════════════════════════════════
@@ -454,58 +493,40 @@ def _run_chat(agent: AegisXAgent, no_stream: bool = False) -> None:
 
 
 def _chat_with_animation(agent: AegisXAgent, user_message: str, no_stream: bool = False) -> None:
-    """Chat with animated thinking/tool progress + streaming."""
-    progress = AnimatedProgress()
+    """Chat with live, line-based status — no spinner thread.
 
-    def _animate() -> None:
-        while progress._running:
-            frame = progress.get_frame()
-            if frame:
-                sys.stdout.write(f"\r{frame}   ")
-                sys.stdout.flush()
-            time.sleep(0.1)
-        sys.stdout.write("\r" + " " * 60 + "\r")
-        sys.stdout.flush()
-
-    import threading
-
-    # Start thinking animation
-    progress.thinking("🤔 Thinking...")
-    anim_thread = threading.Thread(target=_animate, daemon=True)
-    anim_thread.start()
-
+    A background spinner used to repaint the line with ``\r`` even while the
+    permission gate waited at the approval prompt, so answers were typed
+    blind. Tool status now arrives as plain dim lines inside the stream
+    instead: each tool call prints what is about to run as it starts, and
+    its outcome right after it finishes.
+    """
+    printer = StreamLinePrinter()
     try:
         if no_stream:
-            # No stream to carry delegation telemetry, so print it instead.
+            # No stream to carry tool status or delegation telemetry, so a
+            # static notice stands in — nothing repaints the approval panel.
+            console.print("[dim]🤔 Thinking…[/dim]")
             response = asyncio.run(
                 agent.chat(user_message, on_progress=print_delegation_progress)
             )
-            progress.stop()
-            time.sleep(0.15)
             console.print()
             console.print(Panel(Markdown(response), title="🤖 AegisX", border_style="green"))
             console.print()
         else:
             # Streaming mode: ONE request per turn. Tool calls are parsed from
-            # the stream itself, so there is no separate probe request — and
-            # tool turns stream live instead of falling back to a panel.
-            progress.stop()
-            time.sleep(0.1)
+            # the stream itself and announce themselves the moment they start.
             console.print()
-            console.print("[bold green]🤖 AegisX:[/bold green] ", end="")
 
             async def _stream() -> None:
                 async for chunk in agent.chat_stream(user_message):
-                    # Typewriter effect (tool status lines included)
-                    sys.stdout.write(chunk)
-                    sys.stdout.flush()
+                    printer.write(chunk)
                     time.sleep(0.02)  # Smooth typing speed
 
             asyncio.run(_stream())
-            console.print("\n")
+            printer.finish()
     except Exception:
-        progress.stop()
-        time.sleep(0.1)
+        printer.finish()
         raise
 
 

@@ -156,12 +156,14 @@ class AgenticLoop:
         system_prompt: str,
         tool_schemas: list[dict[str, Any]] | None = None,
         on_tool_result: Any = None,
+        on_tool_start: Any = None,
     ) -> tuple[str, AgentTrace]:
         """Run the agentic loop. Returns (final_response, trace).
 
-        ``on_tool_result(name, success)`` fires after each tool execution, so
-        non-streaming callers (subagents, scheduled runs) can observe progress
-        the same way streaming UIs do.
+        ``on_tool_start(name, arguments)`` fires before each tool executes and
+        ``on_tool_result(name, success)`` after — so non-streaming callers
+        (subagents, scheduled runs) can observe progress the same way
+        streaming UIs do.
         """
         return await self._run(
             messages,
@@ -170,6 +172,7 @@ class AgenticLoop:
             on_chunk=None,
             on_tool_result=on_tool_result,
             use_stream=False,
+            on_tool_start=on_tool_start,
         )
 
     async def run_streaming(
@@ -179,6 +182,7 @@ class AgenticLoop:
         tool_schemas: list[dict[str, Any]] | None = None,
         on_chunk: Any = None,
         on_tool_result: Any = None,
+        on_tool_start: Any = None,
     ) -> tuple[str, AgentTrace]:
         """Run the agentic loop over streamed completions.
 
@@ -196,6 +200,7 @@ class AgenticLoop:
             on_chunk=on_chunk,
             on_tool_result=on_tool_result,
             use_stream=True,
+            on_tool_start=on_tool_start,
         )
 
     async def _run(
@@ -206,6 +211,7 @@ class AgenticLoop:
         on_chunk: Any,
         on_tool_result: Any,
         use_stream: bool,
+        on_tool_start: Any = None,
     ) -> tuple[str, AgentTrace]:
         """Shared loop body: non-streaming keeps provider retries, streaming
         forwards live deltas. Everything else is identical."""
@@ -250,6 +256,9 @@ class AgenticLoop:
                 return final, trace
 
             # Record tool calls
+            if on_tool_start is not None:
+                for tc in response.tool_calls:
+                    on_tool_start(tc.name, tc.arguments)
             step.thought = response.content or "(calling tools)"
             step.tool_calls = [
                 {"name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
