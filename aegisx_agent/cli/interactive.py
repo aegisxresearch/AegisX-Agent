@@ -707,14 +707,66 @@ def _run_chat(agent: AegisXAgent, no_stream: bool = False) -> None:
             console.print("\n[error]Configuration Error:[/error]")
             console.print(Panel(str(e), title="❌ Setup Required", border_style="red"))
         except Exception as e:
-            error_msg = str(e)
-            if "Bearer" in error_msg or "401" in error_msg:
-                console.print("\n[error]Authentication Failed — API key invalid or missing[/error]")
-                console.print("[dim]Use: /provider or set env vars[/dim]")
-            elif "connect" in error_msg.lower() or "timeout" in error_msg.lower():
-                console.print("\n[error]Connection Error — cannot reach LLM provider[/error]")
-            else:
-                console.print(f"\n[error]Error: {e}[/error]")
+            _print_chat_error(e)
+
+
+def _print_chat_error(e: Exception) -> None:
+    """Show one chat failure with the server's message and an action hint."""
+    import httpx
+
+    text = str(e)
+    lowered = text.lower()
+
+    # HTTP status classification applies both to real HTTPStatusError and to
+    # wrapped/bubbled exceptions whose message carries the server's text.
+    if isinstance(e, httpx.HTTPStatusError) or "http" in lowered or "401" in text:
+        if "insufficient" in lowered or "quota" in lowered or "balance" in lowered:
+            console.print(Panel(
+                f"{text}\n\n[warning]Your API account is out of credit.[/warning] "
+                "Top up the account, or switch provider with `aegisx init`.",
+                title="💸 Quota exhausted", border_style="red",
+            ))
+            return
+        if "content-blocked" in lowered or "content blocked" in lowered:
+            console.print(Panel(
+                f"{text}\n\n[warning]The endpoint rejected this request.[/warning] "
+                "Some 'router' services fingerprint their clients and only allow "
+                "their own app — AegisX cannot bypass that. Try a genuinely "
+                "OpenAI-compatible endpoint (OpenRouter, DeepSeek, Groq, Ollama) "
+                "via `aegisx init`.",
+                title="🚫 Content blocked", border_style="red",
+            ))
+            return
+        if "401" in text or "403" in text or "unauthorized" in lowered:
+            console.print(Panel(
+                f"{text}\n\n[warning]The key was rejected.[/warning] Check it with "
+                "`aegisx config-info`, or set a fresh one via `aegisx init`.",
+                title="🔑 Authentication failed", border_style="red",
+            ))
+            return
+        if "429" in text or "rate" in lowered:
+            console.print(Panel(
+                f"{text}\n\n[dim]Requests are auto-retried with backoff; this one "
+                "kept failing. Wait a moment or lower the request rate.[/dim]",
+                title="⏳ Rate limited", border_style="yellow",
+            ))
+            return
+    if "unauthorized client" in lowered:
+        console.print(Panel(
+            f"{text}\n\n[warning]The endpoint only accepts its own client.[/warning] "
+            "AegisX is a generic OpenAI-compatible client and cannot impersonate "
+            "one. Use a different endpoint.",
+            title="🚫 Client not allowed", border_style="red",
+        ))
+        return
+    if "connect" in lowered or "timeout" in lowered:
+        console.print(Panel(
+            f"{text}\n\n[dim]Cannot reach the LLM provider. Check your connection "
+            "or the base URL in `aegisx config-info`.[/dim]",
+            title="🌐 Connection error", border_style="red",
+        ))
+        return
+    console.print(Panel(str(e), title="❌ Error", border_style="red"))
 
 
 def _chat_with_animation(agent: AegisXAgent, user_message: str, no_stream: bool = False) -> None:

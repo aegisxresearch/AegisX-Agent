@@ -347,8 +347,8 @@ def test_run_chat_classifies_connection_and_auth_errors(agent, capsys, monkeypat
         monkeypatch.setattr(inter, "_chat_with_animation", failing)
         inter._run_chat(agent)
     captured = out(capsys)
-    assert "Authentication Failed" in captured
-    assert "Connection Error" in captured
+    assert "Authentication failed" in captured
+    assert "Connection error" in captured
 
 
 def test_chat_with_animation_streams_and_panels(agent, capsys, monkeypatch) -> None:
