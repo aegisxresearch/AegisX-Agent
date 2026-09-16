@@ -154,6 +154,9 @@ def test_permission_prompt_deny_allow_always_and_default(isolated, capsys, monke
         def allow(self, tool: str) -> None:
             self.allowed.append(tool)
 
+        def default_scope_for(self, tool: str, arguments: dict[str, Any]) -> str | None:
+            return None
+
     agent = type("A", (), {"permission_gate": FakeGate()})()
     monkeypatch.setattr(cli, "_agent", agent)
 

@@ -31,6 +31,14 @@ class PermissionMode(str, Enum):
 
 
 @dataclass(frozen=True)
+class PermissionScopeRule:
+    """One scoped allow rule: ``tool`` may run when its scope matches."""
+
+    tool: str
+    pattern: str  # fnmatch pattern against the tool's scope value
+
+
+@dataclass(frozen=True)
 class PermissionRequest:
     """A call that needs a decision, shown to a human before approval."""
 
@@ -106,6 +114,62 @@ class PermissionGate:
         self.audit = audit if audit is not None else AuditLog(None, enabled=False)
         self._allowed = {name.strip() for name in allowed if name and name.strip()}
         self._denied = {name.strip() for name in denied if name and name.strip()}
+        self._scoped: dict[str, str] = {}
+
+    # === Scoped allow rules ===
+
+    #: Which single argument defines a call's blast radius per tool.
+    _SCOPE_KEYS = {"file_ops": "path", "editor": "path", "shell": "command", "git": "action"}
+
+    def allow_scoped(self, tool: str, pattern: str) -> None:
+        """Permit ``tool`` when its scope value matches ``pattern`` (fnmatch).
+
+        E.g. ``allow_scoped("editor", "login-register/**")`` lets the agent
+        rewrite anything under that folder without asking, while the rest of
+        the tree still needs approval.
+        """
+        self._scoped[tool] = pattern
+        self._allowed.discard(tool)
+
+    def scoped_rules(self) -> dict[str, str]:
+        return dict(self._scoped)
+
+    def _scope_value(self, tool: str, arguments: dict[str, Any]) -> str:
+        key = self._SCOPE_KEYS.get(tool)
+        if not key:
+            return ""
+        value = arguments.get(key)
+        return value.strip() if isinstance(value, str) else ""
+
+    def _matches_scoped(self, tool: str, arguments: dict[str, Any]) -> bool:
+        import fnmatch
+
+        pattern = self._scoped.get(tool)
+        if not pattern:
+            return False
+        value = self._scope_value(tool, arguments)
+        return bool(value) and fnmatch.fnmatch(value, pattern)
+
+    def default_scope_for(self, tool: str, arguments: dict[str, Any]) -> str | None:
+        """The sensible scoped-allow pattern for this call, if one exists.
+
+        For file writes: a sibling folder rule (``<dir>/**``) so a whole
+        feature folder can be approved at once. For shell: the program name
+        with a trailing ``*`` so ``pytest -q`` approves ``pytest -x`` too.
+        ``None`` when the tool has no scopeable argument.
+        """
+        value = self._scope_value(tool, arguments)
+        if not value:
+            return None
+        if tool in ("file_ops", "editor"):
+            parent = value.rstrip("/").rsplit("/", 1)[0]
+            return f"{parent}/**" if parent else "**"
+        if tool == "shell":
+            program = value.split()[0] if value.split() else value
+            return f"{program}*"
+        if tool == "git":
+            return value
+        return None
 
     # === Policy inspection / mutation ===
 
@@ -162,6 +226,14 @@ class PermissionGate:
         if tool in self._allowed:
             return PermissionDecision(
                 True, f"'{tool}' is allow-listed", risk, self.mode, "allowlist"
+            )
+        if self._matches_scoped(tool, arguments):
+            return PermissionDecision(
+                True,
+                f"'{tool}' matches scoped allow '{self._scoped.get(tool, '')}'",
+                risk,
+                self.mode,
+                "scoped-allowlist",
             )
 
         if self.mode is PermissionMode.ALLOW_ALL:

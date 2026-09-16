@@ -389,10 +389,18 @@ async def _permission_prompt(request: PermissionRequest) -> bool:
             f"{request.summary}"
         )
     console.print(Panel(body, title="🔐 Approval required", border_style="yellow"))
+    scope_default: str | None = None
+    if _agent is not None:
+        scope_default = _agent.permission_gate.default_scope_for(request.tool, request.arguments)
+    has_scope = scope_default is not None
+    choices = ["y", "n", "a"] + (["s"] if has_scope else [])
+    scope_hint = ""
+    if has_scope:
+        scope_hint = f"   [dim]s[/dim] scope: [cyan]{scope_default}[/cyan]"
     answer = Prompt.ask(
         "  [dim]y[/dim] allow once   [dim]n[/dim] deny   [dim]a[/dim] always allow "
-        "[dim]'" + request.tool + "'[/dim]\n  Allow?",
-        choices=["y", "n", "a"],
+        "[dim]'" + request.tool + "'[/dim]" + scope_hint + "\n  Allow?",
+        choices=choices,
         default="n",
         show_choices=False,
     )
@@ -401,6 +409,14 @@ async def _permission_prompt(request: PermissionRequest) -> bool:
             _agent.permission_gate.allow(request.tool)
         console.print(
             f"[success]✅ '{request.tool}' is now allow-listed for this session[/success]"
+        )
+        return True
+    if answer == "s" and has_scope:
+        if _agent is not None and scope_default is not None:
+            _agent.permission_gate.allow_scoped(request.tool, scope_default)
+        console.print(
+            f"[success]✅ '{request.tool}' approved while it stays under "
+            f"[cyan]{scope_default}[/cyan][/success]"
         )
         return True
     return answer == "y"
@@ -844,6 +860,9 @@ def run(
         "--permission-mode",
         help="Tool permission mode: allow-all, ask (default), read-only",
     ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit machine-readable JSON (no banners, no progress)"
+    ),
 ) -> None:
     """Run one task in this project and exit — scriptable."""
     text = (task or "").strip() or _read_piped_prompt()
@@ -859,17 +878,42 @@ def run(
     if persona and isinstance(persona, str):
         config.persona = persona
     agent = _get_agent(config)
-    _print_workspace(agent)
+    if not json_output:
+        _print_workspace(agent)
 
     started = time.perf_counter()
     try:
         # A delegated task reports what its subagents are doing as they do it;
         # without this the only feedback until the answer is silence.
-        answer = asyncio.run(agent.chat(text, on_progress=print_delegation_progress))
+        answer = asyncio.run(
+            agent.chat(
+                text,
+                on_progress=None if json_output else print_delegation_progress,
+            )
+        )
     except Exception as exc:
+        if json_output:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+            raise typer.Exit(code=1) from exc
         console.print(f"[error]Task failed: {exc}[/error]")
         raise typer.Exit(code=1) from exc
     elapsed = time.perf_counter() - started
+
+    if json_output:
+        trace = getattr(agent, "last_trace", None)
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "answer": answer,
+                    "session_id": getattr(agent, "session_id", ""),
+                    "elapsed_seconds": round(elapsed, 2),
+                    "tokens": getattr(trace, "total_tokens", None),
+                    "tool_calls": getattr(trace, "total_tool_calls", None),
+                }
+            )
+        )
+        return
 
     console.print()
     console.print(Markdown(answer))
@@ -977,6 +1021,99 @@ def config_info() -> None:
         display = value if key != "api_key" else ("***" if value else "(not set)")
         table.add_row(f"llm.{key}", str(display))
     console.print(table)
+
+
+@app.command()
+def init() -> None:
+    """Interactive onboarding: pick provider, model, credentials, AGENTS.md."""
+    from aegisx_agent.core.config import LLMProvider, missing_credentials
+
+    console.print("[bold cyan]🚀 AegisX setup wizard[/bold cyan]")
+    saved = _load_saved_config() or {}
+
+    # 1. Detect a running local Ollama so the default just works.
+    ollama_url = "http://localhost:11434"
+    has_ollama = False
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=2) as resp:
+            has_ollama = resp.status == 200
+    except Exception:  # noqa: BLE001 — any failure just means "not running"
+        has_ollama = False
+    if has_ollama:
+        console.print(f"[success]🔌 Local Ollama detected at {ollama_url}[/success]")
+
+    providers = [p.value for p in LLMProvider]
+    default_provider = "ollama" if has_ollama else "openai"
+    provider = typer.prompt(
+        f"LLM provider ({'/'.join(providers)})",
+        default=str(saved.get("provider") or default_provider),
+    )
+    while provider not in providers:
+        provider = typer.prompt(
+            f"Unknown provider. Choose one of ({'/'.join(providers)})",
+            default=default_provider,
+        )
+
+    default_models = {
+        "openai": "gpt-4o-mini",
+        "anthropic": "claude-sonnet-4",
+        "ollama": "llama3.2",
+        "groq": "llama-3.3-70b-versatile",
+        "custom": "my-model",
+    }
+    model = typer.prompt(
+        "Model",
+        default=str(saved.get("model") or default_models.get(provider, "my-model")),
+    )
+
+    api_key = ""
+    if provider in ("openai", "anthropic", "groq"):
+        api_key = typer.prompt(f"{provider} API key", hide_input=True, default="")
+    elif provider == "custom":
+        api_key = typer.prompt("API key (blank if none)", hide_input=True, default="")
+
+    base_url = ""
+    if provider == "ollama":
+        base_url = typer.prompt(
+            "Ollama base URL", default=str(saved.get("base_url") or ollama_url)
+        )
+    elif provider == "custom":
+        base_url = typer.prompt("Base URL", default=str(saved.get("base_url") or ""))
+
+    config = _get_config(
+        provider=provider,
+        model=model,
+        api_key=api_key or None,
+        custom_url=base_url or None,
+    )
+    missing = missing_credentials(config)
+    if missing:
+        console.print(
+            f"[warning]⚠️ No credentials for '{missing}' yet — you can set the "
+            "env var later or re-run `aegisx init`.[/warning]"
+        )
+    else:
+        console.print("[success]✅ Configuration looks complete.[/success]")
+
+    _save_config(config)
+    console.print(f"[success]💾 Saved to {CONFIG_FILE}[/success]")
+
+    agents_md = Path.cwd() / "AGENTS.md"
+    if not agents_md.exists():
+        agents_md.write_text(
+            "# AGENTS.md\n\n"
+            "Project instructions for AegisX. The agent reads this file from the\n"
+            "folder it is launched in.\n\n"
+            "## Conventions\n\n"
+            "- Describe your project conventions here (language, formatter, tests).\n"
+            "- Commands the agent should prefer, e.g. `pytest -q` or `npm test`.\n"
+            "- Files or folders it must never touch.\n"
+        )
+        console.print("[success]📝 Created AGENTS.md starter template.[/success]")
+
+    console.print("[info]Done. Run `aegisx` to start chatting.[/info]")
 
 
 def _install_root() -> Path:

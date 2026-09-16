@@ -32,6 +32,7 @@ from aegisx_agent.cli.commands.permissions import (
 )
 from aegisx_agent.cli.commands.plugins import _handle_plugin_command
 from aegisx_agent.cli.commands.schedule import _handle_schedule_command
+from aegisx_agent.llm.base import Message, Role
 
 if TYPE_CHECKING:
     from aegisx_agent.core import AegisXAgent
@@ -152,6 +153,7 @@ COMMANDS = {
     "/audit":     {"desc": "Tool decision audit trail", "icon": "🛡️"},
     "/permissions": {"desc": "Show/change tool permissions", "icon": "🔐"},
     "/sessions":  {"desc": "Session stats & search", "icon": "📊"},
+    "/resume":    {"desc": "Continue a previous session", "icon": "⏯️"},
     "/learn":     {"desc": "Teach agent a preference", "icon": "🎓"},
     "/config":    {"desc": "Show current config", "icon": "⚙️"},
     "/clear":     {"desc": "Clear conversation memory", "icon": "🧹"},
@@ -163,7 +165,7 @@ COMMANDS = {
 
 #: Slash commands grouped the way people look for them, for /help.
 _COMMAND_GROUPS: list[tuple[str, list[str]]] = [
-    ("Session", ["/help", "/status", "/config", "/sessions", "/clear", "/quit"]),
+    ("Session", ["/help", "/status", "/config", "/sessions", "/resume", "/clear", "/quit"]),
     ("Model & behavior", ["/model", "/provider", "/persona", "/learn"]),
     ("Coding", ["/code", "/git", "/test"]),
     ("Knowledge", ["/skills", "/ingest"]),
@@ -338,6 +340,36 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
                 f" | Messages: [cyan]{stats['total_messages']}[/cyan]",
                 title="📊 Session Stats", border_style="cyan",
             ))
+            return True
+
+        case "/resume":
+            sessions = agent.session_store.get_recent_sessions(limit=10)
+            if args:
+                target = args.strip()
+            elif sessions:
+                console.print("[info]Recent sessions:[/info]")
+                for i, sid in enumerate(sessions, 1):
+                    console.print(f"  [cyan]{i}[/cyan]. {sid}")
+                pick = Prompt.ask("Resume which", default="1")
+                if not pick.isdigit() or not (1 <= int(pick) <= len(sessions)):
+                    console.print("[warning]Cancelled[/warning]")
+                    return True
+                target = sessions[int(pick) - 1]
+            else:
+                console.print("[warning]No saved sessions found.[/warning]")
+                return True
+            history = agent.session_store.get_session_history(target)
+            agent.conversation.clear()
+            agent.conversation.add_messages([
+                Message(role=Role.USER if h["role"] == "user" else Role.ASSISTANT,
+                        content=h["content"])
+                for h in history
+            ])
+            agent.session_id = target
+            console.print(
+                f"[success]✅ Resumed session {target} "
+                f"({len(history)} messages). Continue where you left off.[/success]"
+            )
             return True
 
         case "/learn":

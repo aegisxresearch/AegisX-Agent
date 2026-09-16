@@ -517,6 +517,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                 tool_schemas=tool_schemas,
             )
 
+        # Scriptable turns read this afterwards (aegisx run --json).
+        self.last_trace = trace
+
         # Save to memory
         self.conversation.add(Message(role=Role.ASSISTANT, content=response))
 
@@ -578,6 +581,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
             # The loop only reaches here on a completed turn, so the same
             # bookkeeping as chat() applies.
+            self.last_trace = trace
             self.conversation.add(Message(role=Role.ASSISTANT, content=response))
             self.session_store.save_message(self.session_id, "user", user_message)
             self.session_store.save_message(self.session_id, "assistant", response)
