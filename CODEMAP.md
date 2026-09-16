@@ -103,5 +103,14 @@ Arah bersih (top-down), tidak ada siklus runtime yang bermasalah. Shims back-com
 3. ~~launcher `cd $ROOT` merusak deteksi project~~ — **DIPERBAIKI** (cae4cc9): `PYTHONPATH` saja.
 4. ~~error LLM cuma "400 Bad Request"~~ — **DIPERBAIKI** (1aa345c): pesan body server ikut naik.
 5. `AGENTS.md` di root adalah prompt "Freebuff Superpower Ultra" — **bukan** bagian dari runtime AegisX; hanya instruksi workspace saat agent berjalan di repo ini.
-6. Blok komentar duplikat "SLASH COMMANDS" di `cli/interactive.py` (kosmetik).
-7. FTS index sesi tidak ikut ter-trim saat `/undo`/`trim_session` — recall pencarian bisa menyentuh turn yang sudah di-undo; history & /resume tetap benar.
+6. ~~Blok komentar duplikat "SLASH COMMANDS" di `cli/interactive.py`~~ — **DIHAPUS** (Batch A).
+7. ~~FTS index sesi tidak ikut ter-trim saat `/undo`/`trim_session`~~ — **DIPERBAIKI** (Batch A): `SessionStore.trim_session` kini juga menghapus baris FTS; bug lama yang menyimpan pesan *terbaru* (bukan *tertua*) juga diluruskan ke `ORDER BY id ASC`.
+
+## Batch A — Polishing (fitur kecil, langsung terasa)
+
+| Fitur | Lokasi |
+|---|---|
+| `/resume` tanpa argumen menampilkan tabel preview (jumlah pesan, terakhir aktif, pesan pembuka) | `memory/advanced.py: SessionStore.get_session_previews`, `cli/interactive.py` case `/resume` |
+| `aegisx mcp search <term> --add` → wizard langsung ke template katalog | `cli/commands/mcp.py: _mcp_wizard(agent, preset=…)`, `cli/main.py: mcp_search(--add)` |
+| Filter tools per risk: `aegisx tools --risk dangerous`, `/tools dangerous` | `cli/commands/permissions.py: _print_tools_table(risk_filter=…)` |
+| FTS trim saat `/undo` + `get_session_previews` | `memory/advanced.py` |

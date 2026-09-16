@@ -190,22 +190,60 @@ class SessionStore:
     def trim_session(self, session_id: str, keep: int) -> int:
         """Keep only the first ``keep`` messages of a session (for /undo).
 
-        Returns the number of rows deleted. The FTS index keeps the stale
-        text — search recall may briefly match undoed turns, but history
-        and /resume stay correct, which is what matters.
+        Returns the number of rows deleted. Matching rows are also removed
+        from the FTS index so /search no longer recalls undoed turns.
         """
         conn = sqlite3.connect(str(self.db_path))
-        ids = conn.execute(
-            "SELECT id FROM sessions WHERE session_id = ? ORDER BY timestamp DESC",
+        rows = conn.execute(
+            "SELECT id, timestamp FROM sessions WHERE session_id = ? "
+            "ORDER BY id ASC",
             (session_id,),
         ).fetchall()
-        extra = [row[0] for row in ids[keep:]]
+        extra = rows[keep:]
         if extra:
-            marks = ",".join("?" for _ in extra)
-            conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", extra)
+            ids = [row[0] for row in extra]
+            stamps = [row[1] for row in extra]
+            marks = ",".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", ids)
+            try:
+                fmarks = ",".join("?" for _ in stamps)
+                conn.execute(
+                    "DELETE FROM sessions_fts WHERE session_id = ? "
+                    f"AND timestamp IN ({fmarks})",
+                    [session_id, *stamps],
+                )
+            except sqlite3.OperationalError:
+                pass  # FTS5 unavailable — history is still correct
         conn.commit()
         conn.close()
         return len(extra)
+
+    def get_session_previews(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Recent sessions with just enough detail to pick one (/resume).
+
+        Each dict carries ``session_id``, ``messages`` (row count), ``last``
+        (ISO timestamp of the newest message) and ``first_message`` (the
+        session's opening text, truncated to 80 chars).
+        """
+        conn = sqlite3.connect(str(self.db_path))
+        rows = conn.execute(
+            "SELECT s.session_id, COUNT(*) AS n, MAX(s.timestamp) AS last, "
+            "(SELECT s2.content FROM sessions s2 "
+            " WHERE s2.session_id = s.session_id ORDER BY s2.id LIMIT 1) "
+            "FROM sessions s GROUP BY s.session_id "
+            "ORDER BY last DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [
+            {
+                "session_id": r[0],
+                "messages": r[1],
+                "last": r[2],
+                "first_message": (str(r[3])[:80] if r[3] else ""),
+            }
+            for r in rows
+        ]
 
     def get_recent_sessions(self, limit: int = 10) -> list[str]:
         """Get recent session IDs."""

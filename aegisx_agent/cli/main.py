@@ -757,7 +757,10 @@ def mcp_remove(
 
 @mcp_app.command("search")
 def mcp_search(
-    query: str = typer.Argument("", help="Filter by name or description")
+    query: str = typer.Argument("", help="Filter by name or description"),
+    add: bool = typer.Option(
+        False, "--add", "-a", help="Run the wizard for the single matching server"
+    ),
 ) -> None:
     """Search the bundled catalog of well-known MCP servers."""
     from aegisx_agent.mcp.catalog import add_command_hint, search_catalog
@@ -766,6 +769,18 @@ def mcp_search(
     if not matches:
         console.print(f"[error]No catalog server matches '{query}'[/error]")
         raise typer.Exit(code=1)
+    if add:
+        if len(matches) > 1:
+            ids = ", ".join(sorted(matches))
+            console.print(
+                f"[error]--add needs exactly one match, got {len(matches)}: {ids}[/error]"
+            )
+            console.print("[dim]Narrow the query, e.g. aegisx mcp search github --add[/dim]")
+            raise typer.Exit(code=1)
+        from aegisx_agent.cli.commands.mcp import _mcp_wizard
+
+        _mcp_wizard(_get_agent(_get_config()), preset=next(iter(matches)))
+        return
     table = Table(title="🌐 MCP Server Catalog", border_style="cyan")
     table.add_column("ID", style="bold")
     table.add_column("Description", max_width=46)
@@ -774,8 +789,9 @@ def mcp_search(
         table.add_row(server_id, str(entry.get("description", "")), add_command_hint(server_id))
     console.print(table)
     console.print(
-        "[dim]Add one, then connect: "
-        "aegisx mcp add <id> <command> [args…] && aegisx mcp connect <id>[/dim]"
+        "[dim]Add one: aegisx mcp search <term> --add, or copy: "
+        + add_command_hint(next(iter(matches)))
+        + "[/dim]"
     )
 
 
@@ -1027,9 +1043,13 @@ def run(
 
 
 @app.command()
-def tools() -> None:
+def tools(
+    risk: str = typer.Option(
+        "", "--risk", "-r", help="Only show one risk level: safe, caution, dangerous"
+    ),
+) -> None:
     """List available tools and their risk level."""
-    _print_tools_table(_get_agent())
+    _print_tools_table(_get_agent(), risk_filter=risk or None)
 
 
 @app.command()

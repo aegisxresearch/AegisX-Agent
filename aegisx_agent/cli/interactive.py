@@ -42,10 +42,6 @@ if TYPE_CHECKING:
 #  ANIMATED PROGRESS
 # ═══════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════
-#  ANIMATED PROGRESS
-# ═══════════════════════════════════════════════════
-
 THINKING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 TOOL_ICONS = {
     "calculator": "🔢", "datetime": "📅", "web_search": "🔍",
@@ -203,10 +199,6 @@ class StreamLinePrinter:
 #  SLASH COMMANDS
 # ═══════════════════════════════════════════════════
 
-# ═══════════════════════════════════════════════════
-#  SLASH COMMANDS
-# ═══════════════════════════════════════════════════
-
 COMMANDS = {
     "/help":      {"desc": "Show all commands", "icon": "📖"},
     "/model":     {"desc": "Switch LLM model", "icon": "🧠"},
@@ -332,7 +324,12 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
             return True
 
         case "/tools":
-            _print_tools_table(agent, max_width=55, title="🔧 Available Tools")
+            _print_tools_table(
+                agent,
+                max_width=55,
+                title="🔧 Available Tools",
+                risk_filter=args.strip() or None,
+            )
             return True
 
         case "/skills":
@@ -470,21 +467,46 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
             return True
 
         case "/resume":
-            sessions = agent.session_store.get_recent_sessions(limit=10)
             if args:
                 target = args.strip()
-            elif sessions:
-                console.print("[info]Recent sessions:[/info]")
-                for i, sid in enumerate(sessions, 1):
-                    console.print(f"  [cyan]{i}[/cyan]. {sid}")
-                pick = Prompt.ask("Resume which", default="1")
-                if not pick.isdigit() or not (1 <= int(pick) <= len(sessions)):
-                    console.print("[warning]Cancelled[/warning]")
-                    return True
-                target = sessions[int(pick) - 1]
             else:
-                console.print("[warning]No saved sessions found.[/warning]")
-                return True
+                previews: list[dict[str, Any]] = []
+                store = agent.session_store
+                preview_getter = getattr(store, "get_session_previews", None)
+                if callable(preview_getter):
+                    previews = list(preview_getter(limit=10))
+                if previews:
+                    table = Table(title="⏯️ Recent sessions", border_style="cyan")
+                    table.add_column("#", style="dim", width=2)
+                    table.add_column("Session id", style="bold")
+                    table.add_column("Msgs", justify="right")
+                    table.add_column("Last active", style="dim")
+                    table.add_column("Opening message", max_width=48)
+                    for i, prev in enumerate(previews, 1):
+                        row_id = str(prev.get("session_id", ""))
+                        row_msgs = str(prev.get("messages", ""))
+                        row_last = str(prev.get("last", ""))[:19]
+                        row_first = str(prev.get("first_message", ""))
+                        table.add_row(str(i), row_id, row_msgs, row_last, row_first)
+                    console.print(table)
+                    pick = Prompt.ask("Resume which", default="1")
+                    if not pick.isdigit() or not (1 <= int(pick) <= len(previews)):
+                        console.print("[warning]Cancelled[/warning]")
+                        return True
+                    target = str(previews[int(pick) - 1]["session_id"])
+                else:
+                    sessions = store.get_recent_sessions(limit=10)
+                    if not sessions:
+                        console.print("[warning]No saved sessions found.[/warning]")
+                        return True
+                    console.print("[info]Recent sessions:[/info]")
+                    for i, sid in enumerate(sessions, 1):
+                        console.print(f"  [cyan]{i}[/cyan]. {sid}")
+                    pick = Prompt.ask("Resume which", default="1")
+                    if not pick.isdigit() or not (1 <= int(pick) <= len(sessions)):
+                        console.print("[warning]Cancelled[/warning]")
+                        return True
+                    target = sessions[int(pick) - 1]
             history = agent.session_store.get_session_history(target)
             agent.conversation.clear()
             agent.conversation.add_messages([

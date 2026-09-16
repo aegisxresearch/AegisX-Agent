@@ -22,15 +22,37 @@ def _risk_label(risk: ToolRisk) -> str:
 
 
 def _print_tools_table(
-    agent: AegisXAgent, max_width: int = 60, title: str = "🔧 Available Tools"
+    agent: AegisXAgent,
+    max_width: int = 60,
+    title: str = "🔧 Available Tools",
+    risk_filter: str | None = None,
 ) -> None:
-    """List the agent's tools together with how the gate treats each one."""
+    """List the agent's tools together with how the gate treats each one.
+
+    ``risk_filter`` (safe|caution|dangerous) limits the listing to one risk
+    level; unknown values print an error instead of a table.
+    """
+    all_tools = agent.tools.list_tools()
+    if risk_filter:
+        wanted = risk_filter.lower()
+        matches = [t for t in all_tools if t.risk.value == wanted]
+        if wanted not in {"safe", "caution", "dangerous"}:
+            console.print(
+                f"[error]Unknown risk '{risk_filter}' — use safe, caution or dangerous[/error]"
+            )
+            return
+        title = f"{title} — {wanted}"
+    else:
+        matches = all_tools
     table = Table(title=title, border_style="yellow")
     table.add_column("Tool", style="bold")
     table.add_column("Risk")
     table.add_column("Description", max_width=max_width)
-    for tool in agent.tools.list_tools():
+    for tool in matches:
         table.add_row(tool.name, _risk_label(tool.risk), tool.description[:80])
+    if not matches:
+        console.print(f"[warning]No tools with risk '{risk_filter}'.[/warning]")
+        return
     console.print(table)
     console.print(
         "[dim]Risk is per call: file_ops 'read' is safe, 'delete' is dangerous. "

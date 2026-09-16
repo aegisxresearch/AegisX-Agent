@@ -133,22 +133,37 @@ def _disconnect(agent: AegisXAgent, server_id: str) -> None:
 #  INTERACTIVE ADD WIZARD
 # ═══════════════════════════════════════════════════
 
-def _mcp_wizard(agent: AegisXAgent) -> None:
+def _mcp_wizard(agent: AegisXAgent, preset: str | None = None) -> None:
     """Guided add: pick a known server (or type your own), fill placeholders,
-    save, then connect right away so failure surfaces here — not later."""
+    save, then connect right away so failure surfaces here — not later.
+
+    ``preset`` skips the catalog menu and jumps straight to a known entry —
+    used by ``aegisx mcp search <term> --add``.
+    """
     from rich.prompt import Prompt
 
     from aegisx_agent.mcp.catalog import CATALOG
 
+    entries = sorted(CATALOG)
+    if preset is not None and preset not in CATALOG:
+        console.print(
+            f"[error]'{preset}' is not in the bundled catalog. "
+            f"Known: {', '.join(entries)}[/error]"
+        )
+        return
+
     console.print("[bold cyan]🧭 MCP server wizard[/bold cyan]")
 
     # 1. Pick a server: numbered catalog or a free-form entry.
-    entries = sorted(CATALOG)
-    console.print("[info]Well-known servers:[/info]")
-    for index, server_id in enumerate(entries, 1):
-        console.print(f"  [cyan]{index}[/cyan]. {server_id} — {CATALOG[server_id]['description']}")
-    console.print("  [cyan]m[/cyan]. manual — type your own command")
-    choice = Prompt.ask("Pick a number or 'm'", default="m")
+    if preset is not None:
+        choice = str(entries.index(preset) + 1)
+    else:
+        console.print("[info]Well-known servers:[/info]")
+        for index, server_id in enumerate(entries, 1):
+            desc = CATALOG[server_id]["description"]
+            console.print(f"  [cyan]{index}[/cyan]. {server_id} — {desc}")
+        console.print("  [cyan]m[/cyan]. manual — type your own command")
+        choice = Prompt.ask("Pick a number or 'm'", default="m")
 
     if choice.strip().isdigit() and 1 <= int(choice.strip()) <= len(entries):
         server_id = entries[int(choice.strip()) - 1]
