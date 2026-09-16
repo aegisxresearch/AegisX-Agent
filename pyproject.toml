@@ -57,6 +57,14 @@ strict = true
 module = "asyncpg.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Untyped third-party packages the checker would otherwise follow into;
+# chromadb's import chain reaches numpy, whose shipped stubs use PEP 695
+# 'type' statements that cannot be parsed while checking python_version 3.10.
+module = ["chromadb.*", "numpy.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
