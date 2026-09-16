@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -105,6 +106,8 @@ class StreamLinePrinter:
 
     def __init__(self) -> None:
         self._started = False
+        self._buffer = ""
+        self._in_code = False
 
     def write(self, chunk: str) -> None:
         if not self._started:
@@ -117,12 +120,81 @@ class StreamLinePrinter:
                 sys.stdout.write(f"\n\033[2m{body}\033[0m\n")
             else:
                 sys.stdout.write(f"\n{body}\n")
-        else:
+            return
+        # Markdown blocks (fenced code) are flushed through rich so the code
+        # lands with real highlighting; plain prose keeps streaming raw so it
+        # stays as live as before.
+        if not sys.stdout.isatty():
             sys.stdout.write(chunk)
+            sys.stdout.flush()
+            return
+        self._buffer += chunk
+        self._drain_buffer()
+
+    def _find_fence_start(self, buf: str) -> int:
+        """Index of the first line-start ``` in ``buf``, or -1."""
+        if buf.startswith("```"):
+            return 0
+        idx = buf.find("\n```")
+        return idx + 1 if idx != -1 else -1
+
+    def _drain_buffer(self) -> None:
+        """Emit complete fenced blocks via rich; prose streams line-by-line.
+
+        A partial trailing line is held back until it cannot grow into a
+        fence marker, so ``` split across chunk boundaries never leaks raw.
+        """
+        while True:
+            if self._in_code:
+                close = self._buffer.find("\n```")
+                if close == -1:
+                    break  # fence still open; wait for more chunks
+                block = self._buffer[: close + 4]
+                self._buffer = self._buffer[close + 4 :]
+                self._flush_markdown(block)
+                self._in_code = False
+                continue
+            start = self._find_fence_start(self._buffer)
+            if start == -1:
+                break
+            prose = self._buffer[:start]
+            if prose:
+                sys.stdout.write(prose)
+            self._buffer = self._buffer[start:]
+            if self._buffer.find("\n") == -1:
+                break  # opening fence line incomplete (e.g. "```py")
+            close = self._buffer.find("\n```")
+            if close == -1:
+                self._in_code = True
+                break
+            block = self._buffer[: close + 4]
+            self._buffer = self._buffer[close + 4 :]
+            self._flush_markdown(block)
+        if not self._in_code and self._buffer:
+            last_nl = self._buffer.rfind("\n")
+            if last_nl != -1:
+                sys.stdout.write(self._buffer[: last_nl + 1])
+                self._buffer = self._buffer[last_nl + 1 :]
         sys.stdout.flush()
+
+    def _flush_markdown(self, block: str) -> None:
+        """Render one completed markdown block through rich."""
+        from rich.markdown import Markdown as RichMarkdown
+
+        console.print("\n", end="")
+        console.print(RichMarkdown(block.rstrip()))
 
     def finish(self) -> None:
         if self._started:
+            if self._buffer:
+                if self._in_code or (
+                    self._find_fence_start(self._buffer) == 0 and "\n" in self._buffer
+                ):
+                    # An unterminated code fence: render what arrived.
+                    self._flush_markdown(self._buffer)
+                else:
+                    sys.stdout.write(self._buffer)
+                self._buffer = ""
             sys.stdout.write("\n")
             sys.stdout.flush()
 
@@ -531,8 +603,42 @@ def _read_piped_prompt() -> str:
 
 
 # ═══════════════════════════════════════════════════
-#  MAIN CHAT LOOP
+#  INPUT: prompt_toolkit with graceful fallback
 # ═══════════════════════════════════════════════════
+
+def _input_function() -> Callable[[str], str] | None:
+    """Return a ``prompt()`` callable with slash-menu + history, or ``None``.
+
+    ``None`` means prompt_toolkit is unavailable or the session is not a
+    terminal — the caller then falls back to plain ``Prompt.ask``.
+    """
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return None
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.formatted_text import ANSI
+        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.styles import Style as PTStyle
+
+        commands = sorted(COMMANDS)
+        completer = WordCompleter(commands, sentence=True)
+        history: Any = InMemoryHistory()
+        pt_style = PTStyle.from_dict({"": "ansibrightblue bold"})
+        session: Any = PromptSession(history=history, completer=completer)
+
+        def prompt(message: str = "") -> str:
+            label = message.replace("[bold blue]", "").replace("[/bold blue]", "")
+            result: str = session.prompt(
+                ANSI(f"\x1b[1;34m{label}\x1b[0m "),
+                style=pt_style,
+            )
+            return result
+
+        return prompt
+    except Exception:  # noqa: BLE001 — any pt failure falls back to rich Prompt
+        return None
+
 
 def _run_chat(agent: AegisXAgent, no_stream: bool = False) -> None:
     """Main interactive chat loop."""
@@ -569,9 +675,14 @@ def _run_chat(agent: AegisXAgent, no_stream: bool = False) -> None:
     )
     console.print()
 
+    input_fn = _input_function()
+
     while True:
         try:
-            user_input = Prompt.ask("[bold blue]You[/bold blue]")
+            if input_fn is not None:
+                user_input = input_fn("You ❯")
+            else:
+                user_input = Prompt.ask("[bold blue]You[/bold blue]")
         except (KeyboardInterrupt, EOFError):
             console.print("\n[dim]Goodbye! 👋[/dim]")
             break
