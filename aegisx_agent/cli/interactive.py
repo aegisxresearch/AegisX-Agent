@@ -161,19 +161,46 @@ COMMANDS = {
 }
 
 
-def _show_command_menu(filter_text: str = "") -> None:
-    """Show / command menu."""
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Icon", style="bold")
-    table.add_column("Command", style="bold magenta")
-    table.add_column("Description", style="dim")
+#: Slash commands grouped the way people look for them, for /help.
+_COMMAND_GROUPS: list[tuple[str, list[str]]] = [
+    ("Session", ["/help", "/status", "/config", "/sessions", "/clear", "/quit"]),
+    ("Model & behavior", ["/model", "/provider", "/persona", "/learn"]),
+    ("Coding", ["/code", "/git", "/test"]),
+    ("Knowledge", ["/skills", "/ingest"]),
+    ("Automation", ["/schedule", "/daemon", "/plugin", "/mcp"]),
+    ("Observability", ["/usage", "/audit", "/permissions"]),
+]
 
-    for cmd, info in COMMANDS.items():
-        if not filter_text or filter_text.lower() in cmd.lower():
-            table.add_row(info["icon"], cmd, info["desc"])
+
+def _show_command_menu(filter_text: str = "") -> None:
+    """Show / command menu, grouped by purpose."""
+    if filter_text:
+        # Filtering: a flat list is more useful than groups here.
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Icon", style="bold")
+        table.add_column("Command", style="bold magenta")
+        table.add_column("Description", style="dim")
+        for cmd, info in COMMANDS.items():
+            if filter_text.lower() in cmd.lower():
+                table.add_row(info["icon"], cmd, info["desc"])
+        console.print()
+        console.print(Panel(table, title="⌨️  Commands", border_style="magenta", padding=(0, 1)))
+        console.print()
+        return
 
     console.print()
-    console.print(Panel(table, title="⌨️  Commands", border_style="magenta", padding=(0, 1)))
+    console.print("[bold magenta]⌨️  Commands[/bold magenta]", justify="left")
+    for title, cmds in _COMMAND_GROUPS:
+        lines = []
+        for cmd in cmds:
+            info = COMMANDS.get(cmd, {"icon": "🔧", "desc": ""})
+            lines.append(
+                f"  {info['icon']} [bold magenta]{cmd}[/bold magenta]"
+                f"  [dim]{info['desc']}[/dim]"
+            )
+        body = "\n".join(lines)
+        console.print(Panel(body, title=title, border_style="dim", padding=(0, 1)))
+    console.print("[dim]Type a command, or just ask the agent in plain language.[/dim]")
     console.print()
 
 
@@ -519,8 +546,14 @@ def _chat_with_animation(agent: AegisXAgent, user_message: str, no_stream: bool 
             console.print()
 
             async def _stream() -> None:
-                async for chunk in agent.chat_stream(user_message):
-                    printer.write(chunk)
+                is_tty = sys.stdout.isatty()
+                async for chunk in agent.chat_stream(user_message, emit_summary=True):
+                    if chunk.startswith("\n⚡"):
+                        # Turn summary footer: dim it on a TTY, keep plain
+                        # otherwise so captured output stays grep-friendly.
+                        printer.write(f"\n\033[2m{chunk[1:]}\033[0m" if is_tty else chunk)
+                    else:
+                        printer.write(chunk)
                     time.sleep(0.02)  # Smooth typing speed
 
             asyncio.run(_stream())

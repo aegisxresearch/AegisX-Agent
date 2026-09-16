@@ -529,7 +529,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
         return response
 
-    async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
+    async def chat_stream(
+        self, user_message: str, emit_summary: bool = False
+    ) -> AsyncIterator[str]:
         """Send a message and stream the response — ONE LLM call per turn.
 
         Tool calls are parsed from the stream itself, so a toolless turn costs
@@ -570,8 +572,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                         on_tool_result=_on_tool_result,
                         on_tool_start=_on_tool_start,
                     )
-                finally:
+                except BaseException:
                     queue.put_nowait(None)
+                    raise
 
             # The loop only reaches here on a completed turn, so the same
             # bookkeeping as chat() applies.
@@ -579,6 +582,15 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             self.session_store.save_message(self.session_id, "user", user_message)
             self.session_store.save_message(self.session_id, "assistant", response)
             await self._maybe_create_skill(user_message, response, trace)
+
+            # Turn summary last, so the UI footer lands after everything else.
+            if emit_summary:
+                queue.put_nowait(
+                    f"\n⚡ {trace.total_tokens} tokens · "
+                    f"{trace.total_tool_calls} tool calls · "
+                    f"{trace.duration_seconds:.1f}s\n"
+                )
+            queue.put_nowait(None)
 
         task = asyncio.create_task(_drive())
         try:

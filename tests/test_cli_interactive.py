@@ -352,7 +352,7 @@ def test_run_chat_classifies_connection_and_auth_errors(agent, capsys, monkeypat
 
 
 def test_chat_with_animation_streams_and_panels(agent, capsys, monkeypatch) -> None:
-    async def fake_stream(message: str):
+    async def fake_stream(message: str, emit_summary: bool = False):
         for chunk in ("hel", "lo"):
             yield chunk
 

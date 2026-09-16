@@ -5,6 +5,11 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.theme import Theme
+from rich.traceback import install as _install_rich_traceback
+
+# Readable crash reports for anything that escapes the CLI's own handling:
+# locals collapsed, frames indented, instead of one raw wall of Python.
+_install_rich_traceback(console=None, show_locals=False, word_wrap=True, extra_lines=1)
 
 THEME = Theme({
     "info": "cyan",

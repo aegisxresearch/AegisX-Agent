@@ -316,6 +316,53 @@ def _run_setup_wizard(config: AgentConfig) -> AgentConfig:
     return config
 
 
+#: file-writing tool calls whose arguments carry a before/after preview.
+_PREVIEWABLE_TOOLS = {"editor", "file_ops"}
+_PREVIEW_MAX_LINES = 40
+
+
+def _permission_preview(request: PermissionRequest) -> Any | None:
+    """A unified diff of the write about to happen, for the approval panel.
+
+    Returns ``None`` when the call is not a file write (nothing to preview)
+    or the target file does not exist yet (a create shows its content
+    instead, handled by the caller).
+    """
+    import difflib
+
+    if request.tool not in _PREVIEWABLE_TOOLS:
+        return None
+    args = request.arguments
+    path_arg = args.get("path") or args.get("file")
+    content = args.get("content")
+    if not path_arg or not isinstance(content, str):
+        return None
+    path = Path(str(path_arg)).expanduser()
+    if args.get("action") not in ("write", "create", "append", "replace_line", "edit"):
+        return None
+    try:
+        old = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    except OSError:
+        return None
+    if not path.exists() and args.get("action") != "append":
+        # New file: show the incoming content itself, truncated.
+        lines = content.splitlines()[:_PREVIEW_MAX_LINES]
+        more = len(content.splitlines()) - len(lines)
+        body = "\n".join(f"+ {line}" for line in lines)
+        if more > 0:
+            body += f"\n… +{more} more lines"
+        return body
+    diff = list(difflib.unified_diff(
+        old.splitlines(), content.splitlines(),
+        fromfile="before", tofile="after", lineterm="",
+    ))[2:]  # drop the ---/+++ headers; the panel already says what file
+    if not diff:
+        return None
+    if len(diff) > _PREVIEW_MAX_LINES:
+        diff = diff[:_PREVIEW_MAX_LINES] + [f"… +{len(diff) - _PREVIEW_MAX_LINES} more lines"]
+    return "\n".join(diff)
+
+
 async def _permission_prompt(request: PermissionRequest) -> bool:
     """Ask the operator to approve one dangerous tool call.
 
@@ -324,12 +371,24 @@ async def _permission_prompt(request: PermissionRequest) -> bool:
     working while the question is open).
     """
     console.print()
-    console.print(Panel(
-        f"[bold]{request.tool}[/bold] [warning]({request.risk.value})[/warning]\n\n"
-        f"{request.summary}",
-        title="🔐 Approval required",
-        border_style="yellow",
-    ))
+    console.bell()  # one ping: an approval may be waiting even unfocused
+    preview = _permission_preview(request)
+    if preview:
+        from rich.console import Group
+        from rich.syntax import Syntax
+
+        body: Any = Group(
+            f"[bold]{request.tool}[/bold] [warning]({request.risk.value})[/bold] "
+            f"[cyan]{request.arguments.get('path', '')}[/cyan]\n\n"
+            f"{request.summary}\n",
+            Syntax(preview, "diff", theme="monokai", word_wrap=True),
+        )
+    else:
+        body = (
+            f"[bold]{request.tool}[/bold] [warning]({request.risk.value})[/warning]\n\n"
+            f"{request.summary}"
+        )
+    console.print(Panel(body, title="🔐 Approval required", border_style="yellow"))
     answer = Prompt.ask(
         "  [dim]y[/dim] allow once   [dim]n[/dim] deny   [dim]a[/dim] always allow "
         "[dim]'" + request.tool + "'[/dim]\n  Allow?",
