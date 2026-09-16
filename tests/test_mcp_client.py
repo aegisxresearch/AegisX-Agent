@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp_compat import needs_demo_server
+from mcp_compat import needs_demo_server, needs_mcp_sdk
 from support import run
 
 from aegisx_agent.mcp.client import MCPClientError, MCPToolClient
@@ -78,6 +78,7 @@ def test_concurrent_calls_serialize_on_one_connection() -> None:
         run(client.close())
 
 
+@needs_mcp_sdk
 def test_missing_command_is_a_clean_error() -> None:
     client = MCPToolClient("broken", {"command": "   "})
     with pytest.raises(MCPClientError, match="no 'command' configured"):
@@ -85,6 +86,7 @@ def test_missing_command_is_a_clean_error() -> None:
     assert not client.connected
 
 
+@needs_mcp_sdk
 def test_unlaunchable_command_reports_the_os_error() -> None:
     client = _client("ghost", command="/no/such/binary-xyz")
     with pytest.raises(MCPClientError, match="Failed to start MCP server 'ghost'"):

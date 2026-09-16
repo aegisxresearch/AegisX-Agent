@@ -42,3 +42,10 @@ DEMO_SERVER_SKIP_REASON = (
 needs_demo_server = pytest.mark.skipif(
     not DEMO_SERVER_SUPPORTED, reason=DEMO_SERVER_SKIP_REASON
 )
+
+#: Mark for tests that need the mcp SDK present but never spawn a server
+#: (e.g. client validation that branches on MCP_AVAILABLE). Runs on any
+#: installed mcp version.
+needs_mcp_sdk = pytest.mark.skipif(
+    not MCP_AVAILABLE, reason="the 'mcp' package is not installed"
+)
