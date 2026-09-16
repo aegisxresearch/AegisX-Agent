@@ -1117,8 +1117,10 @@ def personas() -> None:
 @app.command()
 def config_info() -> None:
     """Show current configuration."""
-    from aegisx_agent.core.config import AgentConfig
-    config = AgentConfig()
+    # _get_config() merges the saved ~/.aegisx/config.json and env — a bare
+    # AgentConfig() ignores them, which made this show defaults instead of
+    # what `aegisx init` wrote.
+    config = _get_config()
     llm_config = config.get_llm_config()
     table = Table(title="⚙️ Configuration", border_style="cyan")
     table.add_column("Setting", style="bold")
