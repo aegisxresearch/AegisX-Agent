@@ -404,8 +404,12 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         if tool_names:
             system_prompt += (
                 f"\n\nYou have access to the following tools: {', '.join(tool_names)}. "
-                "Use tools when they would help answer the user's question. "
-                "To use a tool, respond with a tool call in the appropriate format. "
+                "Act, don't instruct: when the user asks about this project, this "
+                "folder, or 'the source code', call the tools (codebase, file_ops, "
+                "code_edit, git, …) yourself instead of asking the user to paste "
+                "code or provide paths — you already have the working directory. "
+                "Tool calls are issued via the API's function-calling mechanism, "
+                "not by printing code for the user to run. "
                 "Always think step by step before acting."
             )
 
