@@ -141,7 +141,7 @@ COMMANDS = {
     "/provider":  {"desc": "Switch LLM provider", "icon": "🔌"},
     "/persona":   {"desc": "Switch agent persona", "icon": "🎭"},
     "/tools":     {"desc": "List available tools", "icon": "🔧"},
-    "/skills":    {"desc": "List or load learned skills", "icon": "💡"},
+    "/skills":    {"desc": "Skills: view/export/import", "icon": "💡"},
     "/code":      {"desc": "Coding mode — analyze/edit/run tests", "icon": "💻"},
     "/git":       {"desc": "Git operations (status/diff/commit)", "icon": "📦"},
     "/test":      {"desc": "Run project tests", "icon": "🧪"},
@@ -263,6 +263,37 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
             return True
 
         case "/skills":
+            parts = args.split(maxsplit=1) if args else []
+            if parts and parts[0] in ("export", "import"):
+                sub, rest = parts[0], parts[1].strip() if len(parts) > 1 else ""
+                if not rest:
+                    console.print(f"[dim]Usage: /skills {sub} <name-or-path> [dest][/dim]")
+                    return True
+                try:
+                    if sub == "export":
+                        # Skill names may contain spaces; the destination (if
+                        # given) is the last token that looks like a path.
+                        tokens = rest.split()
+                        dest = None
+                        if len(tokens) > 1 and (
+                            "/" in tokens[-1] or tokens[-1].endswith((".md", ".json"))
+                        ):
+                            dest = tokens[-1]
+                            name = " ".join(tokens[:-1])
+                        else:
+                            name = rest
+                        dest = dest or f"{name.lower().replace(' ', '_')}.md"
+                        path = agent.skill_manager.export_skill(name, dest)
+                        console.print(f"[success]📤 Exported '{name}' → {path}[/success]")
+                    else:
+                        skill = agent.skill_manager.import_skill(rest)
+                        console.print(
+                            f"[success]📥 Imported '{skill.name}' — "
+                            f"{len(skill.steps)} steps[/success]"
+                        )
+                except (KeyError, FileNotFoundError, ValueError) as exc:
+                    console.print(f"[error]Skill {sub} failed: {exc}[/error]")
+                return True
             if args:
                 content = agent.get_skill(args)
                 if content:

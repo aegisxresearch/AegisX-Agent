@@ -139,6 +139,38 @@ class SkillManager:
         skill.save(self.skills_dir / f"{self._sanitize(name)}.md")
         return True
 
+    def export_skill(self, name: str, dest: str | Path) -> Path:
+        """Write a skill's markdown to ``dest`` so it can be shared.
+
+        Raises ``KeyError`` when the skill does not exist.
+        """
+        skill = self._skills.get(name)
+        if skill is None:
+            raise KeyError(f"No skill named '{name}'")
+        dest_path = Path(dest).expanduser()
+        if dest_path.suffix not in (".md", ".json"):
+            dest_path = dest_path.with_suffix(".md")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        skill.save(dest_path)
+        return dest_path
+
+    def import_skill(self, source: str | Path) -> Skill:
+        """Load a skill from a shared ``.md``/``.json`` file into the library.
+
+        Returns the imported skill (already persisted into ``skills_dir``).
+        Raises ``FileNotFoundError`` for a missing file and ``ValueError``
+        when the file does not parse as a skill.
+        """
+        source_path = Path(source).expanduser()
+        if not source_path.is_file():
+            raise FileNotFoundError(f"Skill file not found: {source}")
+        skill = Skill.from_file(source_path)
+        if not skill.name:
+            raise ValueError(f"Skill file has no name: {source}")
+        self._skills[skill.name] = skill
+        skill.save(self.skills_dir / f"{self._sanitize(skill.name)}.md")
+        return skill
+
     @staticmethod
     def _sanitize(name: str) -> str:
         """Turn a skill name into a safe file stem."""

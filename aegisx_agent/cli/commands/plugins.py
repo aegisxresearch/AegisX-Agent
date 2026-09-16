@@ -16,7 +16,8 @@ PLUGIN_USAGE = (
     "[dim]Usage:[/dim]\n"
     "  /plugin list                     — loaded plugins and gate verdicts\n"
     "  /plugin load <module-or-path>    — load a module or .py file\n"
-    "  /plugin unload <plugin-id>       — remove a loaded plugin"
+    "  /plugin unload <plugin-id>       — remove a loaded plugin\n"
+    "  /plugin reload <plugin-id>       — unload + reload from its source"
 )
 
 _RISK_STYLES = {"safe": "green", "caution": "yellow", "dangerous": "bold red"}
@@ -117,6 +118,31 @@ def _handle_plugin_command(args: str, agent: AegisXAgent) -> None:
             loaded = [m.plugin_id for m in agent.plugin_registry.list_plugins()]
             if loaded:
                 console.print(f"[dim]Loaded: {', '.join(loaded)}[/dim]")
+        return
+
+    if subcmd == "reload":
+        if not rest:
+            console.print("[dim]Usage: /plugin reload <plugin-id>[/dim]")
+            return
+        if not agent.plugin_registry.get(rest):
+            console.print(f"[error]No loaded plugin: {rest}[/error]")
+            return
+        origin = agent.plugin_registry.origin_of(rest)
+        if not origin:
+            console.print(
+                "[error]This plugin was registered in-process (no source "
+                "recorded); load it again from its module or file instead.[/error]"
+            )
+            return
+        try:
+            agent.unload_plugin(rest)
+            loader = agent.load_plugin_path if origin.endswith(".py") else agent.load_plugin_module
+            names = loader(origin)
+        except Exception as exc:
+            console.print(f"[error]Plugin reload failed: {type(exc).__name__}: {exc}[/error]")
+            return
+        console.print(f"[success]🔄 Reloaded {len(names)} tool(s) for '{rest}'[/success]")
+        _print_plugins_table(agent)
         return
 
     console.print(PLUGIN_USAGE)

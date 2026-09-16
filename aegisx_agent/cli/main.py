@@ -739,6 +739,81 @@ def mcp_remove(
     console.print(f"[success]🗑 Removed '{server_id}' from the MCP config[/success]")
 
 
+@mcp_app.command("search")
+def mcp_search(
+    query: str = typer.Argument("", help="Filter by name or description")
+) -> None:
+    """Search the bundled catalog of well-known MCP servers."""
+    from aegisx_agent.mcp.catalog import add_command_hint, search_catalog
+
+    matches = search_catalog(query)
+    if not matches:
+        console.print(f"[error]No catalog server matches '{query}'[/error]")
+        raise typer.Exit(code=1)
+    table = Table(title="🌐 MCP Server Catalog", border_style="cyan")
+    table.add_column("ID", style="bold")
+    table.add_column("Description", max_width=46)
+    table.add_column("Install hint", max_width=60)
+    for server_id, entry in matches.items():
+        table.add_row(server_id, str(entry.get("description", "")), add_command_hint(server_id))
+    console.print(table)
+    console.print(
+        "[dim]Add one, then connect: "
+        "aegisx mcp add <id> <command> [args…] && aegisx mcp connect <id>[/dim]"
+    )
+
+
+@mcp_app.command("doctor")
+def mcp_doctor(
+    server_id: str = typer.Argument(..., help="Server id to diagnose")
+) -> None:
+    """Diagnose why an MCP server will not connect."""
+    import shutil as _shutil
+
+    agent = _get_agent(_get_config())
+    checks: list[tuple[str, str, str]] = []  # (status, check, detail)
+
+    try:
+        config = agent.mcp.get_server_config(server_id)
+        checks.append(("✅", "config", f"found in {agent.mcp.config_path}"))
+    except MCPManagerError as exc:
+        checks.append(("❌", "config", str(exc)))
+        _print_doctor_report(server_id, checks)
+        raise typer.Exit(code=1) from exc
+
+    command = str(config.get("command", ""))
+    resolved = _shutil.which(command)
+    if resolved:
+        checks.append(("✅", "binary", f"{command} → {resolved}"))
+    else:
+        checks.append(("❌", "binary", f"'{command}' not on PATH — install it first"))
+
+    if agent.mcp.is_connected(server_id):
+        names = [d.manifest.qualified_tool_name for d in agent.mcp.definitions_for(server_id)]
+        detail = f"live, {len(names)} tool(s): {', '.join(names) or '-'}"
+        checks.append(("✅", "connection", detail))
+    else:
+        checks.append(("➖", "connection", "not connected right now"))
+
+    _print_doctor_report(server_id, checks)
+
+    if not resolved or not agent.mcp.is_connected(server_id):
+        console.print(
+            "[dim]Try: aegisx mcp connect " + server_id + " — the connect error names the "
+            "handshake failure exactly (bad args, missing env, protocol mismatch).[/dim]"
+        )
+
+
+def _print_doctor_report(server_id: str, checks: list[tuple[str, str, str]]) -> None:
+    table = Table(title=f"🩺 MCP doctor: {server_id}", border_style="cyan")
+    table.add_column("", width=2)
+    table.add_column("Check", style="bold")
+    table.add_column("Detail", max_width=70)
+    for icon, check, detail in checks:
+        table.add_row(icon, check, detail)
+    console.print(table)
+
+
 app.add_typer(mcp_app, name="mcp")
 
 

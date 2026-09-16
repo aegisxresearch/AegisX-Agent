@@ -48,6 +48,8 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._definitions: dict[str, list[PluginDefinition]] = {}
+        #: plugin_id -> module path or file path it was loaded from (for reload).
+        self._origins: dict[str, str] = {}
 
     def register(self, definition: PluginDefinition) -> PluginTool:
         """Validate and register one definition, grouped under its plugin_id."""
@@ -83,6 +85,10 @@ class PluginRegistry:
             for definition in definitions
         ]
 
+    def origin_of(self, plugin_id: str) -> str | None:
+        """Where a loaded plugin came from (module or file path), for reload."""
+        return self._origins.get(plugin_id)
+
     def load_module(self, module: str | ModuleType) -> list[PluginDefinition]:
         """Load ``PluginDefinition`` values exported by a module.
 
@@ -91,7 +97,12 @@ class PluginRegistry:
         ``PLUGINS``.
         """
         loaded = importlib.import_module(module) if isinstance(module, str) else module
-        return self._definitions_from_module(loaded)
+        definitions = self._definitions_from_module(loaded)
+        origin = getattr(loaded, "__name__", None)
+        if origin:
+            for definition in definitions:
+                self._origins.setdefault(definition.manifest.plugin_id, origin)
+        return definitions
 
     def load_path(self, path: str | Path) -> list[PluginDefinition]:
         """Load plugin definitions from a Python file by explicit path."""
@@ -104,7 +115,10 @@ class PluginRegistry:
             raise PluginError(f"Unable to load plugin module: {path}")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return self._definitions_from_module(module)
+        definitions = self._definitions_from_module(module)
+        for definition in definitions:
+            self._origins[definition.manifest.plugin_id] = str(plugin_path)
+        return definitions
 
     def install_into(self, registry: Any) -> list[PluginTool]:
         """Register every loaded definition as a tool in an existing registry."""
