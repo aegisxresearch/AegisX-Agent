@@ -36,6 +36,15 @@ MCP), `--dev` (tool test); `--uninstall` untuk menghapusnya. Jalankan `installer
 --help` untuk daftar lengkap. Menjalankan ulang installer berarti meng-update install
 yang sudah ada.
 
+Installer juga membersihkan sisa instalasi manual lama: baris `alias aegisx=...`
+atau `export PATH="…aegisx…/bin:$PATH"` yang usang di `~/.bashrc`,
+`~/.bash_aliases`, `~/.profile`, atau `~/.zshrc` akan membayangi perintah baru
+dengan error "No such file or directory" begitu direktori tujuannya hilang. Hanya
+baris yang terbukti mati yang dihapus — komentar, entri yang masih valid, dan baris
+PATH milik installer sendiri tetap dipertahankan — dan setiap file yang diedit
+dibackup dulu sebagai `.bak-aegisx-*` bertimestamp. Pembersihan yang sama juga
+berjalan saat `--uninstall`.
+
 Ingin mengembangkan dari sebuah checkout?
 
 ```bash

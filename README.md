@@ -33,6 +33,14 @@ Options: `--ref <branch-or-tag>`, `--dir <path>`, `--bin <path>`, `--with-mcp` (
 extra), `--dev` (test tools); `--uninstall` removes it again. Run `installer.sh --help`
 for the full list. Re-running the installer updates an existing install.
 
+The installer also cleans up after older manual installs: a stale
+`alias aegisx=...` or `export PATH="…aegisx…/bin:$PATH"` line in `~/.bashrc`,
+`~/.bash_aliases`, `~/.profile`, or `~/.zshrc` shadows the fresh command with
+"No such file or directory" once its target directory is gone. Only provably
+dead lines are removed — comments, still-valid entries, and the installer's own
+PATH line are kept — and every edited file gets a timestamped
+`.bak-aegisx-*` backup. The same sweep runs on `--uninstall`.
+
 Hacking on a checkout instead?
 
 ```bash
