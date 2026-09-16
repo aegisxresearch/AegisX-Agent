@@ -708,13 +708,29 @@ def mcp_disconnect(
 
 @mcp_app.command("add")
 def mcp_add(
-    server_id: str = typer.Argument(..., help="Short id used in tool names (mcp_<id>_<tool>)"),
-    command: str = typer.Argument(..., help="Executable that speaks MCP over stdio"),
+    server_id: str = typer.Argument(None, help="Short id used in tool names (mcp_<id>_<tool>)"),
+    command: str = typer.Argument(None, help="Executable that speaks MCP over stdio"),
     args: list[str] = typer.Argument(None, help="Arguments for the command"),
     risk: str | None = typer.Option(None, "--risk", help="Default risk: safe, caution, dangerous"),
+    wizard: bool = typer.Option(
+        False, "--wizard", "-w", help="Guided add: pick a known server, fill values, test-connect"
+    ),
 ) -> None:
-    """Persist a stdio MCP server config for later connect."""
+    """Persist a stdio MCP server config, or run the guided wizard.
+
+    With no arguments (or --wizard) this becomes interactive: pick from the
+    bundled catalog, fill in the placeholders, and the connection is tested
+    immediately.
+    """
+    from aegisx_agent.cli.commands.mcp import _mcp_wizard
+
     agent = _get_agent(_get_config())
+    if wizard or not server_id:
+        _mcp_wizard(agent)
+        return
+    if not command:
+        console.print("[error]Usage: aegisx mcp add <id> <command> [args…] — or --wizard[/error]")
+        raise typer.Exit(code=1)
     server_config: dict[str, Any] = {"command": command, "args": list(args or [])}
     if risk is not None:
         server_config["risk"] = risk
