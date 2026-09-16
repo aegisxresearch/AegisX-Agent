@@ -15,9 +15,14 @@
 | 🖥️ **Rich CLI** | Beautiful terminal interface with streaming |
 | 📁 **Workspace aware** | Knows the folder it runs in: stack, git state, `AGENTS.md` instructions |
 | 🔐 **Permission gate** | Every tool call is classified by risk and gated before it runs |
+| 🪟 **Approval you can read** | Dangerous calls show a unified diff of the write before you approve, a terminal bell pings once, and `s` scopes an allow-rule to one folder or command |
+| 🖥️ **Modern terminal UX** | prompt_toolkit input with slash-command autocomplete and history, streaming answers with rich-rendered code blocks, grouped `/help`, and a live turn HUD (tokens · tool calls · seconds) |
 | ⏰ **Scheduler** | Cron-style tasks that run unattended, with checkpoints, resume, exponential backoff, loop detection, and an audit log |
 | 🧭 **Persistent daemon** | Scheduled tasks stored in SQLite that survive restarts, with full 5-field cron parsing (ranges, steps, names) and graceful shutdown |
-| 🧩 **Plugins** | Explicitly loaded, versioned tools with JSON schemas and permission policies |
+| 🧩 **Plugins** | Explicitly loaded, versioned tools with JSON schemas and permission policies, hot-reloadable from their origin |
+| 🌐 **MCP with a wizard** | Guided `aegisx mcp add` — pick from a bundled catalog of well-known servers, fill in the placeholders, and the connection is tested immediately; `mcp doctor` diagnoses the rest |
+| 💡 **Portable skills** | The agent's learned skills can be exported to and imported from shareable files (`/skills export\|import`) |
+| ↩️ **Undo & budget** | `/undo` drops the last exchange; `AEGISX_MAX_TOKENS_PER_TURN` stops a turn gracefully when its budget is spent |
 
 ## 🚀 Quick Start
 
@@ -115,10 +120,12 @@ aegisx -p custom --url https://api.together.xyz/v1 -k your-key -m meta-llama/Lla
 
 ```bash
 aegisx                    # Start interactive chat in the current folder
+aegisx init               # Onboarding wizard: provider, model, key, AGENTS.md
 aegisx chat               # Same as above
 aegisx run "task"         # One-shot: do it, print the answer, exit
+aegisx run "task" --json  # Machine-readable output for scripting
 aegisx run < task.md      # Task read from stdin (pipeline friendly)
-aegisx plan "goal"        # Plan and execute a multi-step goal
+aegisx plan "goal"        # Plan, confirm the steps, then execute
 aegisx ingest ./docs/     # Ingest documents into knowledge base
 aegisx search "query"     # Search the knowledge base
 aegisx personas           # List available personas
@@ -163,9 +170,12 @@ aegisx plugin unload demo  # Remove a loaded plugin
 
 # MCP servers (Model Context Protocol — any external tool catalog)
 aegisx mcp list                     # Configured servers + connection state
+aegisx mcp wizard                   # Guided add: pick, fill, test-connect
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect filesystem       # Register a server's tools as gated plugins
 aegisx mcp disconnect filesystem    # Remove its tools, close the session
-aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp doctor filesystem        # Diagnose: config, binary on PATH, connection
+aegisx mcp search github            # Search the bundled server catalog
 aegisx mcp remove files
 ```
 
@@ -503,11 +513,20 @@ pip install "aegisx-agent[mcp]"      # optional extra: official mcp SDK
 ```
 
 ```bash
+aegisx mcp wizard                     # guided: pick a known server, fill values, test-connect
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect files             # → plugin_mcp_files_* tools registered
 aegisx mcp list                      # state + tools per server
+aegisx mcp doctor files              # why won't it connect? (config, binary, handshake)
+aegisx mcp search github             # find servers in the bundled catalog
 aegisx mcp disconnect files
 ```
+
+The wizard is the fastest path: it lists well-known servers (filesystem,
+github, git, sqlite, fetch, memory, sequential-thinking, time), asks for any
+`<placeholder>` values and env secrets, saves the config, and **connects right
+away** so a bad binary or wrong args surface on the spot — with a `mcp doctor`
+hint when the test fails.
 
 - Tools arrive as `plugin_mcp_<server>_<tool>` and show up in `/tools` and
   `/plugin list` with the gate's verdict for the current mode.

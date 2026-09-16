@@ -17,9 +17,14 @@
 | 🖥️ **CLI Kaya** | Antarmuka terminal indah dengan streaming |
 | 📁 **Sadar Workspace** | Tahu folder tempatnya berjalan: stack, status git, instruksi `AGENTS.md` |
 | 🔐 **Gerbang Izin** | Setiap panggilan tool diklasifikasi berdasarkan risiko dan digate sebelum berjalan |
+| 🪟 **Persetujuan yang terbaca** | Panggilan berbahaya menampilkan diff unified sebelum Anda menyetujui, bell terminal berbunyi sekali, dan `s` mencakup allow-rule ke satu folder/perintah |
+| 🖥️ **UX terminal modern** | Input prompt_toolkit dengan autocomplete slash-command dan riwayat, jawaban streaming dengan blok kode render-rich, `/help` tergroup, dan HUD turn live (token · tool call · detik) |
 | ⏰ **Penjadwal** | Tugas gaya-cron tanpa pengawasan, dengan checkpoint, resume, exponential backoff, deteksi loop, dan log audit |
 | 🧭 **Daemon persisten** | Tugas terjadwal tersimpan di SQLite dan bertahan melewati restart, dengan cron 5-field lengkap (rentang, step, nama) dan shutdown halus |
-| 🧩 **Plugin** | Tool terversi yang dimuat eksplisit, dengan JSON Schema dan kebijakan izin |
+| 🧩 **Plugin** | Tool terversi yang dimuat eksplisit, dengan JSON Schema dan kebijakan izin, bisa hot-reload dari asalnya |
+| 🌐 **MCP dengan wizard** | `aegisx mcp add` terpandu — pilih dari katalog server terkenal bawaan, isi placeholder, dan koneksi langsung diuji; `mcp doctor` mendiagnosis sisanya |
+| 💡 **Skill portabel** | Skill yang dipelajari agen bisa diekspor ke dan diimpor dari file yang bisa dibagikan (`/skills export\|import`) |
+| ↩️ **Undo & budget** | `/undo` membuang pertukaran terakhir; `AEGISX_MAX_TOKENS_PER_TURN` menghentikan turn dengan anggun saat budget habis |
 
 ## 🚀 Mulai Cepat
 
@@ -119,10 +124,12 @@ aegisx -p custom --url https://api.together.xyz/v1 -k kunci-anda -m meta-llama/L
 
 ```bash
 aegisx                    # Mulai chat interaktif di folder saat ini
+aegisx init               # Wizard onboarding: provider, model, key, AGENTS.md
 aegisx chat               # Sama seperti di atas
 aegisx run "tugas"        # Sekali jalan: kerjakan, cetak jawaban, keluar
+aegisx run "tugas" --json # Output JSON mesin-baca untuk scripting
 aegisx run < tugas.md     # Tugas dibaca dari stdin (ramah pipeline)
-aegisx plan "tujuan"      # Rencanakan dan eksekusi tujuan multi-langkah
+aegisx plan "tujuan"      # Rencanakan, konfirmasi langkahnya, lalu eksekusi
 aegisx ingest ./docs/     # Unggah dokumen ke basis pengetahuan
 aegisx search "query"     # Cari basis pengetahuan
 aegisx personas           # Daftar persona yang tersedia
@@ -153,9 +160,12 @@ aegisx plugin unload demo  # Hapus plugin yang termuat
 
 # Server MCP (Model Context Protocol — katalog tool eksternal apa pun)
 aegisx mcp list                     # Server terkonfigurasi + status koneksi
+aegisx mcp wizard                   # Tambah terpandu: pilih, isi, uji koneksi
+aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect filesystem       # Daftarkan tool server sebagai plugin bergerbang
 aegisx mcp disconnect filesystem    # Hapus tool-nya, tutup sesi
-aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
+aegisx mcp doctor filesystem        # Diagnosis: config, binary di PATH, koneksi
+aegisx mcp search github            # Cari server di katalog bawaan
 aegisx mcp remove files
 ```
 
@@ -491,11 +501,20 @@ pip install "aegisx-agent[mcp]"      # ekstra opsional: SDK mcp resmi
 ```
 
 ```bash
+aegisx mcp wizard                     # terpandu: pilih server, isi nilai, uji koneksi
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect files             # → tool plugin_mcp_files_* terdaftar
 aegisx mcp list                      # status + tool per server
+aegisx mcp doctor files              # kenapa tak konek? (config, binary, handshake)
+aegisx mcp search github             # cari server di katalog bawaan
 aegisx mcp disconnect files
 ```
+
+Wizard adalah jalur tercepat: ia menampilkan server-server terkenal
+(filesystem, github, git, sqlite, fetch, memory, sequential-thinking, time),
+meminta nilai `<placeholder>` dan rahasia env, menyimpan config, lalu **langsung
+menghubungkan** agar binary yang hilang atau argumen salah ketahuan di tempat —
+dengan petunjuk `mcp doctor` saat tes gagal.
 
 - Tool tiba sebagai `plugin_mcp_<server>_<tool>` dan muncul di `/tools` dan
   `/plugin list` lengkap dengan putusan gate untuk mode saat ini.
