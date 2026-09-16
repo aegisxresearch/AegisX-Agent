@@ -61,11 +61,30 @@ class ToolResult:
     def is_success(self) -> bool:
         return self.status == ToolStatus.SUCCESS
 
+    #: Cap on one tool result's size when sent back to the LLM. Full output
+    #: stays available to the UI; oversized payloads make some OpenAI-
+    #: compatible gateways choke (bad gateway / 520s) and burn tokens.
+    MAX_LLM_OUTPUT_CHARS = 16_000
+
     def to_llm_message(self) -> str:
-        """Format result for LLM consumption."""
-        if self.is_success:
-            return self.output
-        return f"Tool Error ({self.status.value}): {self.error}\nOutput: {self.output}"
+        """Format result for LLM consumption, truncating oversized output.
+
+        The head carries most signal (file listings, logs); the tail note
+        tells the model it may request a narrower view instead of the tool
+        being silent about the rest.
+        """
+        text = self.output if self.is_success else (
+            f"Tool Error ({self.status.value}): {self.error}\nOutput: {self.output}"
+        )
+        limit = self.MAX_LLM_OUTPUT_CHARS
+        if len(text) <= limit:
+            return text
+        head = text[:limit]
+        omitted = len(text) - limit
+        return (
+            f"{head}\n… [output truncated: {omitted} more characters. "
+            "Re-run with a narrower query/path/range if you need the rest.]"
+        )
 
 
 class Tool(ABC):

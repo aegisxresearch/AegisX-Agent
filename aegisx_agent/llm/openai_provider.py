@@ -158,58 +158,75 @@ class OpenAIProvider(LLMProvider):
         finish_reason: str | None = None
         usage: dict[str, Any] = {}
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            ) as resp:
-                if resp.is_error:
-                    await resp.aread()  # the body names the failure
-                    _raise_with_server_message(resp)
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload_text = line[6:]
-                    if payload_text.strip() == "[DONE]":
-                        break
-                    chunk = json.loads(payload_text)
+        import asyncio as _asyncio
 
-                    if chunk.get("usage"):
-                        usage = chunk["usage"]
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    if choice.get("finish_reason"):
-                        finish_reason = choice["finish_reason"]
+        max_retries = 3
+        for attempt in range(max_retries):
+            retrying = False
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                ) as resp:
+                    if resp.is_error:
+                        await resp.aread()  # the body names the failure
+                        status = resp.status_code
+                        # Transient upstream failures (Cloudflare 520/522/524,
+                        # origin 5xx) are worth a clean retry as long as no
+                        # text reached the user yet; 4xx never is.
+                        if status >= 500 and attempt < max_retries - 1 and not content_parts:
+                            retrying = True
+                        else:
+                            _raise_with_server_message(resp)
+                    if not retrying:
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload_text = line[6:]
+                            if payload_text.strip() == "[DONE]":
+                                break
+                            chunk = json.loads(payload_text)
 
-                    delta = choice.get("delta") or {}
-                    piece = delta.get("content")
-                    if piece:
-                        content_parts.append(piece)
-                        yield piece
+                            if chunk.get("usage"):
+                                usage = chunk["usage"]
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            choice = choices[0]
+                            if choice.get("finish_reason"):
+                                finish_reason = choice["finish_reason"]
 
-                    for call_delta in delta.get("tool_calls") or []:
-                        index = call_delta.get("index", 0)
-                        entry = tool_calls_by_index.setdefault(
-                            index, {"id": "", "name": "", "arguments": ""}
-                        )
-                        if call_delta.get("id"):
-                            entry["id"] = call_delta["id"]
-                        function = call_delta.get("function") or {}
-                        if function.get("name"):
-                            entry["name"] = (
-                                entry["name"] + function["name"]
-                                if entry["name"] and not call_delta.get("id")
-                                else function["name"]
-                            )
-                        if function.get("arguments"):
-                            entry["arguments"] += function["arguments"]
+                            delta = choice.get("delta") or {}
+                            piece = delta.get("content")
+                            if piece:
+                                content_parts.append(piece)
+                                yield piece
+
+                            for call_delta in delta.get("tool_calls") or []:
+                                index = call_delta.get("index", 0)
+                                entry = tool_calls_by_index.setdefault(
+                                    index, {"id": "", "name": "", "arguments": ""}
+                                )
+                                if call_delta.get("id"):
+                                    entry["id"] = call_delta["id"]
+                                function = call_delta.get("function") or {}
+                                if function.get("name"):
+                                    entry["name"] = (
+                                        entry["name"] + function["name"]
+                                        if entry["name"] and not call_delta.get("id")
+                                        else function["name"]
+                                    )
+                                if function.get("arguments"):
+                                    entry["arguments"] += function["arguments"]
+            if retrying:
+                await _asyncio.sleep(min(2**attempt * 2, 8))
+                continue
+            break
 
         tool_calls = [
             ToolCall(
