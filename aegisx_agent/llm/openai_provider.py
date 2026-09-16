@@ -11,6 +11,39 @@ import httpx
 from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, ToolCall
 
 
+def _raise_with_server_message(resp: httpx.Response) -> None:
+    """``raise_for_status``, but with the server's own error text included.
+
+    A bare "400 Bad Request" hides the actual problem — quota exhausted,
+    unknown model, invalid key — while every OpenAI-compatible server names
+    it in the response body. Without this the CLI shows a dead end.
+    """
+    if resp.is_success:
+        return
+    detail = ""
+    try:
+        body = resp.json()
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict) and error.get("message"):
+                detail = str(error["message"])
+            elif isinstance(error, str):
+                detail = error
+            elif body.get("message"):
+                detail = str(body["message"])
+            else:
+                detail = json.dumps(body)
+        else:
+            detail = str(body)
+    except Exception:  # noqa: BLE001 — body may be empty or non-JSON
+        detail = resp.text or ""
+    detail = detail.strip()[:300]
+    message = f"HTTP {resp.status_code} {resp.reason_phrase} from {resp.request.url}"
+    if detail:
+        message += f" — {detail}"
+    raise httpx.HTTPStatusError(message, request=resp.request, response=resp) from None
+
+
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider."""
 
@@ -75,7 +108,7 @@ class OpenAIProvider(LLMProvider):
                         await asyncio.sleep(wait)
                         continue
 
-                resp.raise_for_status()
+                _raise_with_server_message(resp)
                 data = resp.json()
                 break
 
@@ -135,7 +168,9 @@ class OpenAIProvider(LLMProvider):
                 },
                 json=payload,
             ) as resp:
-                resp.raise_for_status()
+                if resp.is_error:
+                    await resp.aread()  # the body names the failure
+                    _raise_with_server_message(resp)
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
