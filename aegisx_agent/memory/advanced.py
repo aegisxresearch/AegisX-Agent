@@ -187,6 +187,26 @@ class SessionStore:
         conn.close()
         return [{"timestamp": r[0], "role": r[1], "content": r[2]} for r in rows]
 
+    def trim_session(self, session_id: str, keep: int) -> int:
+        """Keep only the first ``keep`` messages of a session (for /undo).
+
+        Returns the number of rows deleted. The FTS index keeps the stale
+        text — search recall may briefly match undoed turns, but history
+        and /resume stay correct, which is what matters.
+        """
+        conn = sqlite3.connect(str(self.db_path))
+        ids = conn.execute(
+            "SELECT id FROM sessions WHERE session_id = ? ORDER BY timestamp DESC",
+            (session_id,),
+        ).fetchall()
+        extra = [row[0] for row in ids[keep:]]
+        if extra:
+            marks = ",".join("?" for _ in extra)
+            conn.execute(f"DELETE FROM sessions WHERE id IN ({marks})", extra)
+        conn.commit()
+        conn.close()
+        return len(extra)
+
     def get_recent_sessions(self, limit: int = 10) -> list[str]:
         """Get recent session IDs."""
         conn = sqlite3.connect(str(self.db_path))

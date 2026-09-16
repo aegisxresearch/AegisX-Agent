@@ -155,6 +155,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             max_iterations=self.config.max_iterations,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
+            max_total_tokens=getattr(self.config, "max_tokens_per_turn", 0) or None,
         )
 
         # Planning
@@ -629,8 +630,16 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         self.conversation.add(Message(role=Role.ASSISTANT, content=response))
         return response, trace
 
-    async def plan_and_execute(self, goal: str) -> ExecutionPlan:
-        """Create a plan for a goal and execute it step by step."""
+    async def plan_and_execute(
+        self,
+        goal: str,
+        confirm: Callable[[ExecutionPlan], bool] | None = None,
+    ) -> ExecutionPlan:
+        """Create a plan for a goal and execute it step by step.
+
+        ``confirm(plan)`` (plan-then-confirm) runs after planning and before
+        any execution; returning ``False`` cancels the plan untouched.
+        """
         tool_names = [t.name for t in self.tools.list_tools()]
 
         # Generate plan
@@ -648,6 +657,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
         plan = self.plan_builder.parse_plan(response.content or "", goal)
         self.current_plan = plan
+        if confirm is not None and not confirm(plan):
+            plan.status = "cancelled"
+            return plan
         plan.status = "running"
 
         # Execute each step

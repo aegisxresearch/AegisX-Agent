@@ -140,6 +140,7 @@ class AgenticLoop:
         enable_reflection: bool = True,
         enable_recovery: bool = True,
         parallel_tools: bool = True,
+        max_total_tokens: int | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -149,6 +150,8 @@ class AgenticLoop:
         self.enable_reflection = enable_reflection
         self.enable_recovery = enable_recovery
         self.parallel_tools = parallel_tools
+        #: Turn budget: stop gracefully once this many tokens are consumed.
+        self.max_total_tokens = max_total_tokens
 
     async def run(
         self,
@@ -244,6 +247,24 @@ class AgenticLoop:
                 )
 
             trace.total_tokens += response.usage.get("total_tokens", 0)
+
+            # Budget guard: stop the turn gracefully when the token budget is
+            # spent, instead of letting an expensive loop run to max_steps.
+            if (
+                self.max_total_tokens is not None
+                and self.max_total_tokens > 0
+                and trace.total_tokens >= self.max_total_tokens
+            ):
+                final = (response.content or "") + (
+                    f"\n\n[budget guard] Turn stopped: token budget "
+                    f"({self.max_total_tokens}) reached."
+                )
+                step.thought = "(budget reached)"
+                step.outcome = StepOutcome.COMPLETED
+                trace.steps.append(step)
+                trace.final_response = final
+                trace.duration_seconds = time.time() - start_time
+                return final, trace
 
             # No tool calls = we're done
             if not response.has_tool_calls:

@@ -86,6 +86,18 @@ class ConversationMemory:
         """Get last N messages."""
         return self._messages[-n:]
 
+    def truncate_to(self, count: int) -> int:
+        """Keep only the first ``count`` messages (used by ``/undo``).
+
+        Returns the number of messages dropped.
+        """
+        if count >= len(self._messages):
+            return 0
+        dropped = len(self._messages) - count
+        self._messages = self._messages[:count]
+        self._save()
+        return dropped
+
     def _trim(self) -> None:
         """Trim messages to max limit, compressing old ones into summary."""
         if len(self._messages) <= self.max_messages:

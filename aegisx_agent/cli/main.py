@@ -903,8 +903,23 @@ def plan(
     _apply_permission_mode(config, permission_mode)
     agent = _get_agent(config)
     console.print(f"\n[bold yellow]📋 Planning:[/bold yellow] {goal}\n")
+
+    def _confirm(p: Any) -> bool:
+        table = Table(title="Proposed Plan", border_style="yellow")
+        table.add_column("#", style="bold")
+        table.add_column("Step", max_width=70)
+        table.add_column("Tool", style="yellow")
+        for step in p.steps:
+            table.add_row(str(step.step_number), step.thought[:120], step.action or "-")
+        console.print(table)
+        answer = Prompt.ask("Execute this plan?", choices=["y", "n"], default="n")
+        return answer == "y"
+
     try:
-        plan_result = asyncio.run(agent.plan_and_execute(goal))
+        plan_result = asyncio.run(agent.plan_and_execute(goal, confirm=_confirm))
+        if getattr(plan_result, "status", "") == "cancelled":
+            console.print("[warning]Plan cancelled — nothing was executed.[/warning]")
+            return
         table = Table(title="Execution Plan", border_style="cyan")
         table.add_column("Step", style="bold")
         table.add_column("Thought", max_width=40)

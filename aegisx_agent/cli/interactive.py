@@ -154,6 +154,7 @@ COMMANDS = {
     "/permissions": {"desc": "Show/change tool permissions", "icon": "🔐"},
     "/sessions":  {"desc": "Session stats & search", "icon": "📊"},
     "/resume":    {"desc": "Continue a previous session", "icon": "⏯️"},
+    "/undo":      {"desc": "Drop the last exchange", "icon": "↩️"},
     "/learn":     {"desc": "Teach agent a preference", "icon": "🎓"},
     "/config":    {"desc": "Show current config", "icon": "⚙️"},
     "/clear":     {"desc": "Clear conversation memory", "icon": "🧹"},
@@ -165,7 +166,7 @@ COMMANDS = {
 
 #: Slash commands grouped the way people look for them, for /help.
 _COMMAND_GROUPS: list[tuple[str, list[str]]] = [
-    ("Session", ["/help", "/status", "/config", "/sessions", "/resume", "/clear", "/quit"]),
+    ("Session", ["/help", "/status", "/config", "/sessions", "/resume", "/undo", "/clear", "/quit"]),  # noqa: E501
     ("Model & behavior", ["/model", "/provider", "/persona", "/learn"]),
     ("Coding", ["/code", "/git", "/test"]),
     ("Knowledge", ["/skills", "/ingest"]),
@@ -371,6 +372,29 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
                 f" | Messages: [cyan]{stats['total_messages']}[/cyan]",
                 title="📊 Session Stats", border_style="cyan",
             ))
+            return True
+
+        case "/undo":
+            history = agent.session_store.get_session_history(agent.session_id)
+            if len(history) < 2:
+                console.print("[warning]Nothing to undo yet.[/warning]")
+                return True
+            # Drop the last user+assistant pair from memory and the store.
+            msgs = agent.conversation.messages
+            drop = 0
+            if msgs and msgs[-1].role == Role.ASSISTANT:
+                drop += 1
+                if msgs and len(msgs) >= 2 and msgs[-2].role == Role.USER:
+                    drop += 1
+            if drop:
+                agent.conversation.truncate_to(len(msgs) - drop)
+            kept_rows = agent.session_store.trim_session(
+                agent.session_id, keep=max(0, len(history) - 2)
+            )
+            console.print(
+                f"[success]↩️  Undid the last exchange "
+                f"({drop} message(s), {kept_rows} stored row(s) removed).[/success]"
+            )
             return True
 
         case "/resume":

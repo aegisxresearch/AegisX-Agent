@@ -60,6 +60,13 @@ class AgentConfig(BaseSettings):
     ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama base URL")
     ollama_model: str = Field(default="llama3.1", description="Ollama model")
 
+    # Turn budget: graceful stop once one turn consumes this many tokens.
+    # 0 or negative disables the guard.
+    max_tokens_per_turn: int = Field(
+        default=0,
+        description="Token budget per turn (AEGISX_MAX_TOKENS_PER_TURN); 0 disables",
+    )
+
     # Groq (fast inference)
     groq_api_key: str = Field(default="", description="Groq API key")
     groq_model: str = Field(default="llama-3.1-70b-versatile", description="Groq model")
