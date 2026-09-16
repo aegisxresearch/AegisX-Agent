@@ -95,6 +95,15 @@ class LLMResponse:
         return len(self.tool_calls) > 0
 
 
+class LLMProviderError(RuntimeError):
+    """The LLM server answered without the expected completion payload.
+
+    Some OpenAI-compatible routers return HTTP 200 with an error body
+    (missing ``choices``) when their upstream fails. Surfacing the body beats
+    a bare ``KeyError: 'choices'``.
+    """
+
+
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 

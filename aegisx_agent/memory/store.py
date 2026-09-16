@@ -98,6 +98,21 @@ class ConversationMemory:
         self._save()
         return dropped
 
+    def rollback_turn(self) -> int:
+        """Remove trailing unanswered user messages (failed turn cleanup).
+
+        When a request dies mid-turn the user message is already persisted,
+        leaving dangling ``user`` bubbles that pollute the restored context.
+        Drops them from the tail so the next turn starts clean.
+        """
+        dropped = 0
+        while self._messages and self._messages[-1].role == Role.USER:
+            self._messages.pop()
+            dropped += 1
+        if dropped:
+            self._save()
+        return dropped
+
     def _trim(self) -> None:
         """Trim messages to max limit, compressing old ones into summary."""
         if len(self._messages) <= self.max_messages:
@@ -148,7 +163,28 @@ class ConversationMemory:
             self._summary = data.get("summary", "")
             self._loaded = True
         except (json.JSONDecodeError, KeyError):
-            pass
+            return
+
+        # Failed turns leave unanswered user messages persisted. A run of
+        # dangling user bubbles teaches the model to reply without tools, so
+        # clean once at load time: collapse each consecutive-user run to its
+        # last member (the one that was eventually answered) and drop any
+        # trailing run entirely.
+        cleaned = self._collapse_dangling_users(self._messages)
+        if len(cleaned) != len(self._messages):
+            self._messages = cleaned
+        self.rollback_turn()  # persists if anything was dropped
+
+    @staticmethod
+    def _collapse_dangling_users(messages: list[Message]) -> list[Message]:
+        """Keep only the last message of every consecutive USER run."""
+        result: list[Message] = []
+        for i, msg in enumerate(messages):
+            nxt = messages[i + 1] if i + 1 < len(messages) else None
+            if msg.role == Role.USER and nxt is not None and nxt.role == Role.USER:
+                continue  # superseded by the next user message
+            result.append(msg)
+        return result
 
 
 class LongTermMemory:

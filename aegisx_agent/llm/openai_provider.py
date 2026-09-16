@@ -8,7 +8,13 @@ from typing import Any
 
 import httpx
 
-from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, ToolCall
+from aegisx_agent.llm.base import (
+    LLMProvider,
+    LLMProviderError,
+    LLMResponse,
+    Message,
+    ToolCall,
+)
 
 
 def _raise_with_server_message(resp: httpx.Response) -> None:
@@ -107,13 +113,27 @@ class OpenAIProvider(LLMProvider):
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait)
                         continue
+                elif resp.status_code >= 500 and attempt < max_retries - 1:
+                    # Transient upstream failures (Cloudflare 520/522/524,
+                    # origin 5xx) get a clean retry — non-streaming has no
+                    # partial output to worry about.
+                    await asyncio.sleep(min(2 ** attempt * 2, 8))
+                    continue
 
                 _raise_with_server_message(resp)
                 data = resp.json()
                 break
 
-        choice = data["choices"][0]
-        message = choice["message"]
+        choice = None
+        message: dict[str, Any] = {}
+        try:
+            choice = data["choices"][0]
+            message = choice.get("message") or {}
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMProviderError(
+                "LLM server returned HTTP 200 without a completion payload. "
+                f"Body: {json.dumps(data)[:300]}"
+            ) from exc
 
         tool_calls = []
         if message.get("tool_calls"):

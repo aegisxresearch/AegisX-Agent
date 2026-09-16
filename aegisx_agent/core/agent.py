@@ -515,12 +515,19 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         tool_schemas = self.tools.list_schemas() or None
 
         # Run enhanced agentic loop
-        with self._subagent_telemetry(on_progress):
-            response, trace = await self.agent_loop.run(
-                messages=messages,
-                system_prompt=system_prompt,
-                tool_schemas=tool_schemas,
-            )
+        try:
+            with self._subagent_telemetry(on_progress):
+                response, trace = await self.agent_loop.run(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    tool_schemas=tool_schemas,
+                )
+        except Exception:
+            # Drop this turn's unanswered user message — a run of dangling
+            # user bubbles (e.g. after several failed requests) pollutes the
+            # restored context and derails later turns.
+            self.conversation.rollback_turn()
+            raise
 
         # Scriptable turns read this afterwards (aegisx run --json).
         self.last_trace = trace
@@ -581,6 +588,9 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                         on_tool_start=_on_tool_start,
                     )
                 except BaseException:
+                    # Drop this turn's unanswered user message — dangling
+                    # user bubbles pollute the restored context later.
+                    self.conversation.rollback_turn()
                     queue.put_nowait(None)
                     raise
 
