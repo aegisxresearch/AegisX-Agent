@@ -1,13 +1,17 @@
 #!/bin/bash
-# AegisX Agent launcher — runs from anywhere
+# AegisX Agent launcher — runs from anywhere, works on the folder you run it in
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
 
 if [ -f "$ROOT/.venv/bin/activate" ]; then
   # shellcheck disable=SC1091
   source "$ROOT/.venv/bin/activate"
 fi
 
+# Keep the caller's working directory: the agent is workspace-aware and treats
+# the current folder as the project (context, git state, AGENTS.md). Make the
+# package importable even without an install by pointing PYTHONPATH at the
+# launcher's directory instead of cd-ing there.
+export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 exec python -m aegisx_agent.cli "$@"
