@@ -13,16 +13,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp_compat import needs_demo_server
 from support import run
 
-from aegisx_agent.mcp.client import (
-    MCP_AVAILABLE,
-    MCPClientError,
-    MCPToolClient,
-)
+from aegisx_agent.mcp.client import MCPClientError, MCPToolClient
 from aegisx_agent.tools.base import ToolStatus
-
-pytestmark = pytest.mark.skipif(not MCP_AVAILABLE, reason="the 'mcp' package is not installed")
 
 SERVER_SCRIPT = str(Path(__file__).resolve().parent / "mcp_demo_server.py")
 
@@ -33,6 +28,7 @@ def _client(server_id: str = "demo", **overrides: Any) -> MCPToolClient:
     return MCPToolClient(server_id, config)
 
 
+@needs_demo_server
 def test_handshake_reports_the_server_identity() -> None:
     client = _client()
     try:
@@ -47,6 +43,7 @@ def test_handshake_reports_the_server_identity() -> None:
         run(client.close())
 
 
+@needs_demo_server
 def test_tool_call_returns_output_and_server_error_becomes_error_result() -> None:
     client = _client()
     try:
@@ -64,6 +61,7 @@ def test_tool_call_returns_output_and_server_error_becomes_error_result() -> Non
         run(client.close())
 
 
+@needs_demo_server
 def test_concurrent_calls_serialize_on_one_connection() -> None:
     client = _client()
     try:
@@ -94,6 +92,7 @@ def test_unlaunchable_command_reports_the_os_error() -> None:
     assert not client.connected
 
 
+@needs_demo_server
 def test_close_is_idempotent_and_discovery_normalizes_schemas() -> None:
     client = _client()
     specs = run(client.list_tools())

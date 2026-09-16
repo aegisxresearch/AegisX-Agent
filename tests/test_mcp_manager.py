@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp_compat import needs_demo_server
 from support import run
 
 from aegisx_agent.mcp.manager import (
@@ -99,6 +100,7 @@ def test_persist_rejects_invalid_configs(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+@needs_demo_server
 def test_connect_registers_gated_tools(tmp_path: Path) -> None:
     registry = ToolRegistry()
     plugins = _manager(tmp_path)._plugin_registry  # noqa: SLF001 - asserting wiring
@@ -119,6 +121,7 @@ def test_connect_registers_gated_tools(tmp_path: Path) -> None:
     assert not manager.is_connected("demo")
 
 
+@needs_demo_server
 def test_double_connect_is_rejected(tmp_path: Path) -> None:
     manager = _manager(tmp_path)
     run(manager.connect_server("demo", _server_config()))
@@ -129,6 +132,7 @@ def test_double_connect_is_rejected(tmp_path: Path) -> None:
         run(manager.disconnect_server("demo"))
 
 
+@needs_demo_server
 def test_failed_connect_leaves_no_half_registered_tools(tmp_path: Path) -> None:
     manager = _manager(tmp_path)
     with pytest.raises(MCPManagerError):
@@ -144,6 +148,7 @@ def test_disconnect_unknown_server_returns_false(tmp_path: Path) -> None:
     assert not run(manager.disconnect_server("ghost"))
 
 
+@needs_demo_server
 def test_close_all_tears_everything_down(tmp_path: Path) -> None:
     manager = _manager(tmp_path)
     run(manager.connect_server("demo", _server_config()))
@@ -172,6 +177,7 @@ def _gated_agent_tools(tmp_path: Path, mode: PermissionMode, **overrides: Any) -
     return registry
 
 
+@needs_demo_server
 def test_caution_tools_run_in_ask_mode_unattended(tmp_path: Path) -> None:
     registry = _gated_agent_tools(tmp_path, PermissionMode.ASK)
     result = run(registry.execute("plugin_mcp_demo_echo", {"text": "hi"}))
@@ -180,6 +186,7 @@ def test_caution_tools_run_in_ask_mode_unattended(tmp_path: Path) -> None:
     assert result.output == "hi"
 
 
+@needs_demo_server
 def test_mcp_tools_are_refused_in_read_only_mode(tmp_path: Path) -> None:
     registry = _gated_agent_tools(tmp_path, PermissionMode.READ_ONLY)
     result = run(registry.execute("plugin_mcp_demo_echo", {"text": "hi"}))
@@ -188,6 +195,7 @@ def test_mcp_tools_are_refused_in_read_only_mode(tmp_path: Path) -> None:
     assert "Permission denied" in (result.error or "")
 
 
+@needs_demo_server
 def test_dangerous_tools_are_denied_unattended(tmp_path: Path) -> None:
     # The demo server's own description carries no dangerous hints, so the
     # override makes the escalation explicit instead of incidental.

@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import pytest
+from mcp_compat import needs_demo_server
 from support import run
 from typer.testing import CliRunner
 
@@ -182,6 +183,7 @@ def test_mcp_add_with_invalid_risk_fails_with_exit_code(runner: CliRunner) -> No
     assert "invalid risk" in result.output
 
 
+@needs_demo_server
 def test_mcp_connect_registers_tools_and_disconnect_removes_them(runner, tmp_path) -> None:
     config_file = tmp_path / "servers.json"
     config_file.write_text(
@@ -240,6 +242,7 @@ def test_mcp_connect_with_unlaunchable_command_fails_cleanly(runner, tmp_path) -
 # --------------------------------------------------------------------------- #
 
 
+@needs_demo_server
 def test_agent_connect_uses_persisted_config(tmp_path, monkeypatch) -> None:
     import sys as _sys
 
