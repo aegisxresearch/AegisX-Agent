@@ -25,8 +25,21 @@
 
 ### Instalasi
 
+Satu perintah — menginstall dari GitHub, menyiapkan virtualenv, dan menaruh `aegisx` di PATH:
+
 ```bash
-pip install -e .
+curl -fsSL https://raw.githubusercontent.com/aegisxresearch/AegisX-Agent/main/installer.sh | bash
+```
+
+Opsi: `--ref <branch-atau-tag>`, `--dir <path>`, `--bin <path>`, `--with-mcp` (ekstra
+MCP), `--dev` (tool test); `--uninstall` untuk menghapusnya. Jalankan `installer.sh
+--help` untuk daftar lengkap. Menjalankan ulang installer berarti meng-update install
+yang sudah ada.
+
+Ingin mengembangkan dari sebuah checkout?
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ### Jalankan di sebuah proyek

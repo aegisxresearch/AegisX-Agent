@@ -23,8 +23,20 @@
 
 ### Install
 
+One command — installs from GitHub, sets up a virtualenv, and puts `aegisx` on your PATH:
+
 ```bash
-pip install -e .
+curl -fsSL https://raw.githubusercontent.com/aegisxresearch/AegisX-Agent/main/installer.sh | bash
+```
+
+Options: `--ref <branch-or-tag>`, `--dir <path>`, `--bin <path>`, `--with-mcp` (the MCP
+extra), `--dev` (test tools); `--uninstall` removes it again. Run `installer.sh --help`
+for the full list. Re-running the installer updates an existing install.
+
+Hacking on a checkout instead?
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ### Run it in a project
