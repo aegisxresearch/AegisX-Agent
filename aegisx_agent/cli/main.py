@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import subprocess
+import sys
 import time
 from collections.abc import Coroutine
 from pathlib import Path
@@ -915,6 +918,99 @@ def config_info() -> None:
         display = value if key != "api_key" else ("***" if value else "(not set)")
         table.add_row(f"llm.{key}", str(display))
     console.print(table)
+
+
+def _install_root() -> Path:
+    """Directory the running aegisx_agent package was loaded from."""
+    import aegisx_agent
+
+    return Path(aegisx_agent.__file__).resolve().parents[1]
+
+
+@app.command()
+def update(
+    ref: str = typer.Option("main", "--ref", help="Branch or tag to update to"),
+) -> None:
+    """Update an installer-based install from GitHub."""
+    root = _install_root()
+    if not (root / ".git").exists():
+        console.print(
+            "[error]This aegisx install has no git metadata (no .git directory); "
+            "re-run the installer to update it.[/error]"
+        )
+        raise typer.Exit(code=1)
+
+    def git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            console.print(f"[error]git {args[0]} failed: {result.stderr.strip()}[/error]")
+            raise typer.Exit(code=1)
+        return result.stdout.strip()
+
+    console.print(f"[info]⬆️  Updating from origin/{ref} …[/info]")
+    git("fetch", "--depth", "1", "origin", ref)
+    current = git("rev-parse", "HEAD")
+    target = git("rev-parse", "FETCH_HEAD")
+    if current == target:
+        console.print(f"[info]Already up to date ({current[:7]}).[/info]")
+        return
+
+    if git("status", "--porcelain"):
+        console.print(
+            "[error]The install has local changes; discarding them automatically "
+            "is unsafe. Re-run the installer instead:[/error]"
+        )
+        console.print(
+            "[dim]  curl -fsSL https://raw.githubusercontent.com/aegisxresearch/"
+            "AegisX-Agent/main/installer.sh | bash[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    git("reset", "--hard", "FETCH_HEAD")
+    console.print(
+        f"[info]Code updated: {current[:7]} → {target[:7]}. Refreshing the install…[/info]"
+    )
+
+    # uv-created venvs ship without pip; if pip is missing, uv made this venv
+    # and is therefore on PATH. Editable install means a code-only update is
+    # already live — the reinstall step only matters for dependency changes.
+    pip_probe = subprocess.run(
+        [sys.executable, "-m", "pip", "--version"], capture_output=True, timeout=60
+    )
+    reinstall: list[list[str]] | None = None
+    if pip_probe.returncode == 0:
+        reinstall = [[sys.executable, "-m", "pip", "install", "--quiet", "-e", str(root)]]
+    elif shutil.which("uv"):
+        reinstall = [
+            ["uv", "pip", "install", "--python", sys.executable, "-e", str(root)]
+        ]
+
+    if reinstall is None:
+        console.print(
+            "[warning]Code is updated, but neither pip nor uv is available to "
+            "refresh dependencies. Re-run the installer if dependencies changed:[/warning]"
+        )
+        console.print(
+            "[dim]  curl -fsSL https://raw.githubusercontent.com/aegisxresearch/"
+            "AegisX-Agent/main/installer.sh | bash[/dim]"
+        )
+        raise typer.Exit(code=0)
+
+    for cmd in reinstall:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            console.print(
+                "[error]Reinstall failed — the code on disk is updated, but "
+                "dependencies may be stale.[/error]"
+            )
+            console.print(f"[dim]{result.stderr.strip()[-400:]}[/dim]")
+            raise typer.Exit(code=1)
+    console.print(f"✓ Updated to {target[:7]}.")
 
 
 @app.callback(invoke_without_command=True)
