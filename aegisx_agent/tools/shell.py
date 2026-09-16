@@ -82,6 +82,13 @@ class ShellTool(Tool):
                 metadata={"exit_code": exit_code},
             )
         except asyncio.TimeoutError:
+            # Close the transport while this loop is still running, otherwise
+            # its finalizer later calls into a closed loop and the resulting
+            # 'Event loop is closed' warning lands on an unrelated test (or
+            # turn) as a flaky failure. communicate() (not wait()) also drains
+            # and closes the pipe transports the cancelled first call left open.
+            process.kill()
+            await process.communicate()
             return ToolResult(
                 status=ToolStatus.TIMEOUT,
                 output="",

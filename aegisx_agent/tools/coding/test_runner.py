@@ -99,6 +99,12 @@ class TestRunnerTool(Tool):
             )
 
         except asyncio.TimeoutError:
+            # Close the transport while the loop is alive; see ShellTool for
+            # why an orphaned subprocess turns into flaky 'Event loop is
+            # closed' failures elsewhere. communicate() also drains and closes
+            # the pipe transports the cancelled first call left open.
+            process.kill()
+            await process.communicate()
             return ToolResult(
                 status=ToolStatus.TIMEOUT,
                 output="",

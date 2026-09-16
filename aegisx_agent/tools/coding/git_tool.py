@@ -126,7 +126,14 @@ class GitTool(Tool):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            # Close the transport while the loop is alive (see ShellTool),
+            # then re-raise so the caller's error handling is unchanged.
+            process.kill()
+            await process.communicate()
+            raise
 
         stdout_str = stdout.decode("utf-8", errors="replace").strip()
         stderr_str = stderr.decode("utf-8", errors="replace").strip()
