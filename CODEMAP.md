@@ -60,12 +60,12 @@ user input (cli/interactive.py:_run_chat)
 | `memory/` | `ConversationMemory`/`LongTermMemory` (store.py), 4-lapis advanced (PromptMemory, SessionStore SQLite+FTS5, UserModel) | core |
 | `rag/` | `RAGEngine` (ChromaDB lazy-init, chunking) | core, tools/rag_search |
 | `scheduler/` | `Scheduler` (SQLite, checkpoint, backoff, recovery), `ScheduledTask`, cron parser 5-field lengkap | core, cli/commands |
-| `skills/` | `SkillManager` (markdown di ~/.aegisx/skills), `Skill`, capture otomatis, **export/import** file portabel | core, tools/skill_tool, cli |
+| `skills/` | `SkillManager` (markdown di ~/.aegisx/skills), `Skill`, capture otomatis, **export/import** file & URL portabel (`import_skill_url`, gist→raw) | core, tools/skill_tool, cli |
 | `planning/` | `PlanBuilder`, `ExecutionPlan` (ReAct) | core |
 | `plugins/` | `PluginRegistry` (+ `origin_of` untuk **hot-reload** `/plugin reload`), `PluginManifest` (versi + qualified name `plugin_<id>_<tool>`), builtin: browser (SSRF guard), github, database (SELECT-only) | core, cli |
 | `mcp/` | `MCPManager` (config ~/.aegisx/mcp_servers.json), `MCPToolClient` (stdio JSON-RPC di thread+loop sendiri — anyio cancel scope butuh satu task), `MCPToolBridge` (risk CAUTION default, eskalasi via kata "dangerous/destructive"), `catalog.py` (katalog server terkenal) | core, cli |
 | `observability/` | `UsageTracker` (wraps LLMProvider, JSONL per call), `track_delegation` (contextvar per asyncio-task) | core, cli, subagent |
-| `cli/` | Typer app + 26 slash commands, prompt_toolkit input + fallback, `StreamLinePrinter` (markdown streaming), approval dengan **diff preview + bell + scoped `s`**, wizard `init`, `mcp wizard/search/doctor`, `/resume`, `/undo` | — (top layer) |
+| `cli/` | Typer app + 27 slash commands, prompt_toolkit input + fallback, `StreamLinePrinter` (markdown streaming), approval dengan **diff preview + bell + scoped `s`**, wizard `init`, `mcp wizard/search/doctor/connect --all`, `skills list/show/export/import/search`, `/resume`, `/undo` | — (top layer) |
 
 ## Sistem Keamanan (desain paling khas)
 
@@ -119,3 +119,12 @@ Arah bersih (top-down), tidak ada siklus runtime yang bermasalah. Shims back-com
 | `aegisx mcp search <term> --add` → wizard langsung ke template katalog | `cli/commands/mcp.py: _mcp_wizard(agent, preset=…)`, `cli/main.py: mcp_search(--add)` |
 | Filter tools per risk: `aegisx tools --risk dangerous`, `/tools dangerous` | `cli/commands/permissions.py: _print_tools_table(risk_filter=…)` |
 | FTS trim saat `/undo` + `get_session_previews` | `memory/advanced.py` |
+
+## Batch B — Ekosistem (berbagi skill + MCP massal)
+
+| Fitur | Lokasi |
+|---|---|
+| Impor skill dari **file, link gist, atau URL mentah** — halaman gist & blob GitHub ditulis ulang ke URL raw | `skills/manager.py: normalize_skill_url, import_skill_text, import_skill_url(fetch=…)`, `cli/commands/skills.py: _fetch_text` |
+| Grup CLI `aegisx skills list\|show\|export\|import\|search` (URL lewat `search` = impor) | `cli/main.py: skills_app` |
+| `/skills list\|show\|export\|import\|search` + `help` memakai handler yang sama dengan CLI | `cli/commands/skills.py: _handle_skills_command` |
+| `aegisx mcp connect --all` / `/mcp connect --all` — dial semua server sekaligus, **satu gagal tidak menghentikan sisanya**, ringkasan per server + hint `mcp doctor` | `mcp/manager.py: connect_all`, `cli/main.py: _connect_every_server`, `cli/commands/mcp.py: _connect_all` |

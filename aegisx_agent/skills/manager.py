@@ -10,11 +10,39 @@ Inspired by Hermes Agent's closed learning loop:
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from aegisx_agent.skills.skill import Skill
+
+#: A share link, not a file: the HTML gist page and the GitHub blob view both
+#: render the skill as a web page, so they need rewriting before downloading.
+_GIST_PAGE_RE = re.compile(r"^https?://gist\.github\.com/([^/]+)/([0-9a-fA-F]+)")
+_BLOB_PAGE_RE = re.compile(
+    r"^https?://github\.com/([^/]+)/([^/]+)/blob/(.+)$"
+)
+
+
+def normalize_skill_url(url: str) -> str:
+    """Turn a pasted share link into a raw file URL.
+
+    ``https://gist.github.com/user/abc123`` → raw gist content, and
+    ``https://github.com/o/r/blob/main/skills/x.md`` → its raw counterpart.
+    Anything else is returned unchanged, so plain raw URLs keep working.
+    """
+    candidate = url.strip()
+    match = _GIST_PAGE_RE.match(candidate)
+    if match:
+        user, gist_id = match.groups()
+        return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
+    blob = _BLOB_PAGE_RE.match(candidate)
+    if blob:
+        owner, repo, rest = blob.groups()
+        return f"https://raw.githubusercontent.com/{owner}/{repo}/{rest}"
+    return candidate
 
 
 class SkillManager:
@@ -164,12 +192,45 @@ class SkillManager:
         source_path = Path(source).expanduser()
         if not source_path.is_file():
             raise FileNotFoundError(f"Skill file not found: {source}")
-        skill = Skill.from_file(source_path)
+        return self.import_skill_text(
+            source_path.read_text(encoding="utf-8"), source=str(source)
+        )
+
+    def import_skill_text(self, content: str, source: str = "<inline>") -> Skill:
+        """Parse skill content (JSON object or markdown) and persist it.
+
+        Raises ``ValueError`` when the text carries no skill name.
+        """
+        text = content.strip()
+        if not text:
+            raise ValueError(f"Skill source is empty: {source}")
+        if text.startswith("{"):
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"Skill source is not valid JSON ({source}): {error}") from error
+            if not isinstance(payload, dict):
+                raise ValueError(f"Skill JSON must be an object: {source}")
+            skill = Skill.from_dict(payload)
+        else:
+            skill = Skill.from_markdown(text)
         if not skill.name:
-            raise ValueError(f"Skill file has no name: {source}")
+            raise ValueError(
+                f"Skill source has no name — expected a '# Skill: <name>' header: {source}"
+            )
         self._skills[skill.name] = skill
         skill.save(self.skills_dir / f"{self._sanitize(skill.name)}.md")
         return skill
+
+    def import_skill_url(self, url: str, fetch: Callable[[str], str]) -> Skill:
+        """Import a skill from a URL, downloading through ``fetch``.
+
+        ``fetch`` is injected so the network stays in the CLI layer and the
+        parsing/persistence path stays unit-testable.
+        """
+        raw_url = normalize_skill_url(url)
+        content = fetch(raw_url)
+        return self.import_skill_text(content, source=url)
 
     @staticmethod
     def _sanitize(name: str) -> str:

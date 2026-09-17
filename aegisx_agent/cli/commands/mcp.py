@@ -20,6 +20,7 @@ MCP_USAGE = (
     "[dim]Usage:[/dim]\n"
     "  /mcp list                                — configured servers and state\n"
     "  /mcp connect <server-id> [config.json]   — connect and register its tools\n"
+    "  /mcp connect --all                       — connect every configured server\n"
     "  /mcp disconnect <server-id>              — remove its tools, close the session\n"
     "  /mcp add <server-id> <command> [args…]   — persist a stdio server config\n"
     "  /mcp wizard                              — guided add: pick, fill, test-connect\n"
@@ -118,6 +119,33 @@ def _connect(agent: AegisXAgent, server_id: str, config_path: str | None) -> Non
         "[dim]Every call still passes the permission gate "
         f"(mode: {agent.permission_gate.mode.value}).[/dim]"
     )
+
+
+def _connect_all(agent: AegisXAgent) -> bool:
+    """Connect every configured server; ``True`` when none failed."""
+    try:
+        connected, failures = asyncio.run(agent.connect_all_mcp_servers())
+    except (MCPManagerError, ValueError) as exc:
+        console.print(f"[error]MCP connect --all failed: {exc}[/error]")
+        return False
+    if not connected and not failures:
+        console.print(
+            f"[warning]No MCP servers configured in {agent.mcp.config_path}[/warning]"
+        )
+        console.print("[dim]Add one with `/mcp wizard`.[/dim]")
+        return False
+    table = Table(title="🌐 MCP connect --all")
+    table.add_column("Server", style="bold")
+    table.add_column("Result")
+    table.add_column("Detail", max_width=60)
+    for server_id, names in connected.items():
+        table.add_row(server_id, "[success]connected[/success]", f"{len(names)} tool(s)")
+    for server_id, error in failures.items():
+        table.add_row(server_id, "[error]failed[/error]", error)
+    console.print(table)
+    for server_id in failures:
+        _print_doctor_hint(agent, server_id)
+    return not failures
 
 
 def _disconnect(agent: AegisXAgent, server_id: str) -> None:
@@ -259,8 +287,14 @@ def _handle_mcp_command(args: str, agent: AegisXAgent) -> None:
         return
     if subcommand == "connect":
         connect_parts = rest.split(maxsplit=1)
+        if connect_parts and connect_parts[0] in ("--all", "-a"):
+            _connect_all(agent)
+            return
         if not connect_parts:
-            console.print("[error]Usage: /mcp connect <server-id> [config.json][/error]")
+            console.print(
+                "[error]Usage: /mcp connect <server-id> [config.json][/error] "
+                "— or /mcp connect --all"
+            )
             return
         _connect(agent, connect_parts[0], connect_parts[1] if len(connect_parts) > 1 else None)
         return
@@ -298,4 +332,10 @@ def _handle_mcp_command(args: str, agent: AegisXAgent) -> None:
     console.print(MCP_USAGE)
 
 
-__all__ = ["MCP_USAGE", "_handle_mcp_command", "_print_servers_table"]
+__all__ = [
+    "MCP_USAGE",
+    "_connect_all",
+    "_handle_mcp_command",
+    "_print_doctor_hint",
+    "_print_servers_table",
+]

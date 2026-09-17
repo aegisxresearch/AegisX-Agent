@@ -33,6 +33,7 @@ from aegisx_agent.cli.commands.permissions import (
 )
 from aegisx_agent.cli.commands.plugins import _handle_plugin_command
 from aegisx_agent.cli.commands.schedule import _handle_schedule_command
+from aegisx_agent.cli.commands.skills import _handle_skills_command
 from aegisx_agent.llm.base import Message, Role
 
 if TYPE_CHECKING:
@@ -205,7 +206,7 @@ COMMANDS = {
     "/provider":  {"desc": "Switch LLM provider", "icon": "🔌"},
     "/persona":   {"desc": "Switch agent persona", "icon": "🎭"},
     "/tools":     {"desc": "List available tools", "icon": "🔧"},
-    "/skills":    {"desc": "Skills: view/export/import", "icon": "💡"},
+    "/skills":    {"desc": "Skills: list/show/export/import/search", "icon": "💡"},
     "/code":      {"desc": "Coding mode — analyze/edit/run tests", "icon": "💻"},
     "/git":       {"desc": "Git operations (status/diff/commit)", "icon": "📦"},
     "/test":      {"desc": "Run project tests", "icon": "🧪"},
@@ -333,65 +334,9 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
             return True
 
         case "/skills":
-            parts = args.split(maxsplit=1) if args else []
-            if parts and parts[0] in ("export", "import"):
-                sub, rest = parts[0], parts[1].strip() if len(parts) > 1 else ""
-                if not rest:
-                    console.print(f"[dim]Usage: /skills {sub} <name-or-path> [dest][/dim]")
-                    return True
-                try:
-                    if sub == "export":
-                        # Skill names may contain spaces; the destination (if
-                        # given) is the last token that looks like a path.
-                        tokens = rest.split()
-                        dest = None
-                        if len(tokens) > 1 and (
-                            "/" in tokens[-1] or tokens[-1].endswith((".md", ".json"))
-                        ):
-                            dest = tokens[-1]
-                            name = " ".join(tokens[:-1])
-                        else:
-                            name = rest
-                        dest = dest or f"{name.lower().replace(' ', '_')}.md"
-                        path = agent.skill_manager.export_skill(name, dest)
-                        console.print(f"[success]📤 Exported '{name}' → {path}[/success]")
-                    else:
-                        skill = agent.skill_manager.import_skill(rest)
-                        console.print(
-                            f"[success]📥 Imported '{skill.name}' — "
-                            f"{len(skill.steps)} steps[/success]"
-                        )
-                except (KeyError, FileNotFoundError, ValueError) as exc:
-                    console.print(f"[error]Skill {sub} failed: {exc}[/error]")
-                return True
-            if args:
-                content = agent.get_skill(args)
-                if content:
-                    console.print(
-                        Panel(content, title=f"💡 Skill: {args}", border_style="magenta")
-                    )
-                else:
-                    matches = agent.search_skills(args)
-                    if matches:
-                        console.print(f"[info]No exact skill '{args}'. Closest matches:[/info]")
-                        for match in matches[:10]:
-                            console.print(f"  💡 {match['name']}: {match['description']}")
-                    else:
-                        console.print(f"[error]No skill matches '{args}'[/error]")
-                return True
-
-            skills = agent.list_skills()
-            if not skills:
-                console.print(
-                    "[dim]No skills learned yet. Skills auto-create after complex tasks.[/dim]"
-                )
-            else:
-                table = Table(title="💡 Learned Skills", border_style="magenta")
-                table.add_column("Name", style="bold")
-                table.add_column("Description", max_width=50)
-                for s in skills:
-                    table.add_row(s["name"], s["description"][:50])
-                console.print(table)
+            # list/show/export/import/search all live in commands/skills.py so
+            # the slash command and `aegisx skills …` cannot drift apart.
+            _handle_skills_command(args, agent)
             return True
 
         case "/code":

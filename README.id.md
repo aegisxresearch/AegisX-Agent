@@ -23,7 +23,7 @@
 | 🧭 **Daemon persisten** | Tugas terjadwal tersimpan di SQLite dan bertahan melewati restart, dengan cron 5-field lengkap (rentang, step, nama) dan shutdown halus |
 | 🧩 **Plugin** | Tool terversi yang dimuat eksplisit, dengan JSON Schema dan kebijakan izin, bisa hot-reload dari asalnya |
 | 🌐 **MCP dengan wizard** | `aegisx mcp add` terpandu — pilih dari katalog server terkenal bawaan, isi placeholder, dan koneksi langsung diuji; `mcp doctor` mendiagnosis sisanya |
-| 💡 **Skill portabel** | Skill yang dipelajari agen bisa diekspor ke dan diimpor dari file yang bisa dibagikan (`/skills export\|import`) |
+| 💡 **Skill portabel** | Ekspor skill yang dipelajari ke file, atau impor dari file, **link gist**, atau URL mentah apa pun (`aegisx skills …`, `/skills …`) |
 | ↩️ **Undo & budget** | `/undo` membuang pertukaran terakhir; `AEGISX_MAX_TOKENS_PER_TURN` menghentikan turn dengan anggun saat budget habis |
 | 🛠️ **Turn yang mengutamakan tool** | Permintaan berbentuk tugas mewajibkan tool call di iterasi pertama (`AEGISX_FORCE_TOOLS=auto\|always\|never`); jawaban teks "paste kode Anda" diulang dengan tool dipaksa |
 
@@ -164,10 +164,19 @@ aegisx mcp list                     # Server terkonfigurasi + status koneksi
 aegisx mcp wizard                   # Tambah terpandu: pilih, isi, uji koneksi
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect filesystem       # Daftarkan tool server sebagai plugin bergerbang
+aegisx mcp connect --all            # Sambungkan semua server terkonfigurasi sekaligus
 aegisx mcp disconnect filesystem    # Hapus tool-nya, tutup sesi
 aegisx mcp doctor filesystem        # Diagnosis: config, binary di PATH, koneksi
 aegisx mcp search github            # Cari server di katalog bawaan
 aegisx mcp remove files
+
+# Skill (prosedur yang dipelajari — portabel antar mesin)
+aegisx skills list                     # Semua yang sudah dipelajari agen
+aegisx skills show "Deploy Static Site"  # Tampilkan satu skill lengkap
+aegisx skills export "Deploy Static Site" deploy.md
+aegisx skills import deploy.md          # Dari file…
+aegisx skills import https://gist.github.com/user/abc123  # …atau link gist
+aegisx skills search deploy             # Cari kata kunci di pustaka
 ```
 
 ## 🔌 Provider yang Didukung
@@ -506,6 +515,7 @@ pip install "aegisx-agent[mcp]"      # ekstra opsional: SDK mcp resmi
 aegisx mcp wizard                     # terpandu: pilih server, isi nilai, uji koneksi
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect files             # → tool plugin_mcp_files_* terdaftar
+aegisx mcp connect --all             # sambungkan semua server, laporkan satu per satu
 aegisx mcp list                      # status + tool per server
 aegisx mcp doctor files              # kenapa tak konek? (config, binary, handshake)
 aegisx mcp search github             # cari server di katalog bawaan

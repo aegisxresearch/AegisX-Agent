@@ -348,6 +348,10 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             server_config = self.mcp.get_server_config(server_id)
         return await self.mcp.connect_server(server_id, server_config)
 
+    async def connect_all_mcp_servers(self) -> tuple[dict[str, list[str]], dict[str, str]]:
+        """Connect every configured MCP server; returns (connected, failures)."""
+        return await self.mcp.connect_all()
+
     async def disconnect_mcp_server(self, server_id: str) -> bool:
         """Disconnect an MCP server and remove every tool it brought."""
         return await self.mcp.disconnect_server(server_id)

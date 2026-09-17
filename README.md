@@ -21,7 +21,7 @@
 | 🧭 **Persistent daemon** | Scheduled tasks stored in SQLite that survive restarts, with full 5-field cron parsing (ranges, steps, names) and graceful shutdown |
 | 🧩 **Plugins** | Explicitly loaded, versioned tools with JSON schemas and permission policies, hot-reloadable from their origin |
 | 🌐 **MCP with a wizard** | Guided `aegisx mcp add` — pick from a bundled catalog of well-known servers, fill in the placeholders, and the connection is tested immediately; `mcp doctor` diagnoses the rest |
-| 💡 **Portable skills** | The agent's learned skills can be exported to and imported from shareable files (`/skills export\|import`) |
+| 💡 **Portable skills** | Export a learned skill to a file, or import one from a file, a **gist share link**, or any raw URL (`aegisx skills …`, `/skills …`) |
 | ↩️ **Undo & budget** | `/undo` drops the last exchange; `AEGISX_MAX_TOKENS_PER_TURN` stops a turn gracefully when its budget is spent |
 | 🛠️ **Tool-first turns** | Task-shaped requests require a tool call on the first iteration (`AEGISX_FORCE_TOOLS=auto\|always\|never`); a text-only "paste your code" answer is retried with tools forced |
 
@@ -174,10 +174,19 @@ aegisx mcp list                     # Configured servers + connection state
 aegisx mcp wizard                   # Guided add: pick, fill, test-connect
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect filesystem       # Register a server's tools as gated plugins
+aegisx mcp connect --all            # Connect every configured server in one pass
 aegisx mcp disconnect filesystem    # Remove its tools, close the session
 aegisx mcp doctor filesystem        # Diagnose: config, binary on PATH, connection
 aegisx mcp search github            # Search the bundled server catalog
 aegisx mcp remove files
+
+# Skills (learned procedures — portable between machines)
+aegisx skills list                     # Everything the agent has learned
+aegisx skills show "Deploy Static Site"  # Print one skill in full
+aegisx skills export "Deploy Static Site" deploy.md
+aegisx skills import deploy.md          # From a file…
+aegisx skills import https://gist.github.com/user/abc123  # …or a gist link
+aegisx skills search deploy             # Keyword search in the library
 ```
 
 ## 🔌 Supported Providers
@@ -518,6 +527,7 @@ pip install "aegisx-agent[mcp]"      # optional extra: official mcp SDK
 aegisx mcp wizard                     # guided: pick a known server, fill values, test-connect
 aegisx mcp add files npx -y @modelcontextprotocol/server-filesystem /tmp
 aegisx mcp connect files             # → plugin_mcp_files_* tools registered
+aegisx mcp connect --all             # dial every configured server, report each one
 aegisx mcp list                      # state + tools per server
 aegisx mcp doctor files              # why won't it connect? (config, binary, handshake)
 aegisx mcp search github             # find servers in the bundled catalog

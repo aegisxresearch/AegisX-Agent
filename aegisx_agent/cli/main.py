@@ -33,9 +33,11 @@ from aegisx_agent.cli.commands.daemon import (  # noqa: F401 — re-exported for
 )
 from aegisx_agent.cli.commands.mcp import (  # noqa: F401 — re-exported for tests
     MCP_USAGE,
+    _connect_all,
     _handle_mcp_command,
     _load_server_config_file,
     _parse_add_arguments,
+    _print_doctor_hint,
     _print_servers_table,
 )
 from aegisx_agent.cli.commands.observability import (  # noqa: F401 — re-exported for tests
@@ -60,6 +62,15 @@ from aegisx_agent.cli.commands.schedule import (  # noqa: F401 — re-exported f
     _print_schedule_results,
     _resolve_schedule,
     _split_flags,
+)
+from aegisx_agent.cli.commands.skills import (  # noqa: F401 — re-exported for tests
+    SKILLS_USAGE,
+    SkillImportError,
+    _handle_skills_command,
+    _print_skills_table,
+    _search_skills,
+    _show_skill,
+    import_skill_from_source,
 )
 from aegisx_agent.cli.interactive import (  # noqa: F401 — re-exported for tests
     AnimatedProgress,
@@ -642,6 +653,77 @@ app.add_typer(plugin_app, name="plugin")
 
 
 # ═══════════════════════════════════════════════════
+#  SKILLS TYPER COMMANDS (aegisx skills ...)
+# ═══════════════════════════════════════════════════
+
+skills_app = typer.Typer(help="💡 Manage the learned-skill library")
+
+
+@skills_app.command("list")
+def skills_list() -> None:
+    """List every skill in the library."""
+    _print_skills_table(_get_agent(_get_config()))
+
+
+@skills_app.command("show")
+def skills_show(
+    name: str = typer.Argument(..., help="Skill name"),
+) -> None:
+    """Print one skill in full."""
+    _show_skill(_get_agent(_get_config()), name)
+
+
+@skills_app.command("export")
+def skills_export(
+    name: str = typer.Argument(..., help="Skill name"),
+    dest: Path | None = typer.Argument(None, help="Destination .md/.json path"),
+) -> None:
+    """Write a skill to a shareable file."""
+    agent = _get_agent(_get_config())
+    target = str(dest) if dest else f"{name.lower().replace(' ', '_')}.md"
+    try:
+        path = agent.skill_manager.export_skill(name, target)
+    except KeyError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[success]📤 Exported '{name}' → {path}[/success]")
+
+
+@skills_app.command("import")
+def skills_import(
+    source: str = typer.Argument(..., help="Local path, gist URL, or raw URL"),
+) -> None:
+    """Import a skill from a file or a URL (gist share links work as-is)."""
+    agent = _get_agent(_get_config())
+    try:
+        skill = import_skill_from_source(agent, source)
+    except (FileNotFoundError, ValueError, SkillImportError) as exc:
+        console.print(f"[error]Skill import failed: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"[success]📥 Imported '{skill.name}' — {len(skill.steps)} steps[/success]"
+    )
+    if skill.description:
+        console.print(f"[dim]{skill.description}[/dim]")
+
+
+@skills_app.command("search")
+def skills_search(
+    query: str = typer.Argument(..., help="Keyword, or a URL to import from"),
+) -> None:
+    """Search the library by keyword, or import straight from a URL."""
+    agent = _get_agent(_get_config())
+    try:
+        _search_skills(agent, query)
+    except (FileNotFoundError, ValueError, SkillImportError) as exc:
+        console.print(f"[error]Skill import failed: {exc}[/error]")
+        raise typer.Exit(code=1) from exc
+
+
+app.add_typer(skills_app, name="skills")
+
+
+# ═══════════════════════════════════════════════════
 #  MCP TYPER COMMANDS (aegisx mcp ...)
 # ═══════════════════════════════════════════════════
 
@@ -665,16 +747,32 @@ def mcp_list() -> None:
 
 @mcp_app.command("connect")
 def mcp_connect(
-    server_id: str = typer.Argument(..., help="Server id from the MCP config"),
+    server_id: str = typer.Argument(
+        None, help="Server id from the MCP config (omit with --all)"
+    ),
     config_file: Path | None = typer.Option(
         None,
         "--config",
         "-c",
         help="One-shot JSON config (mcpServers document or one server object)",
     ),
+    all_servers: bool = typer.Option(
+        False, "--all", "-a", help="Connect every server in the MCP config"
+    ),
 ) -> None:
-    """Connect to an MCP server and register its tools as gated plugins."""
+    """Connect to an MCP server and register its tools as gated plugins.
+
+    With ``--all`` every configured server is dialed in one pass; a server
+    that fails is reported without stopping the others.
+    """
     agent = _get_agent(_get_config())
+    if all_servers:
+        if not _run_async(_connect_every_server(agent)):
+            raise typer.Exit(code=1)
+        return
+    if not server_id:
+        console.print("[error]Usage: aegisx mcp connect <server-id> — or --all[/error]")
+        raise typer.Exit(code=1)
     try:
         server_config = (
             _load_server_config_file(str(config_file.expanduser()), server_id)
@@ -692,6 +790,29 @@ def mcp_connect(
         tool = agent.tools.get(name)
         risk = tool.risk.value if tool else "?"
         console.print(f"  • {name} [yellow]({risk})[/yellow]")
+
+
+async def _connect_every_server(agent: AegisXAgent) -> bool:
+    """Connect all configured MCP servers; ``True`` when none failed."""
+    connected, failures = await agent.connect_all_mcp_servers()
+    if not connected and not failures:
+        console.print(
+            f"[warning]No MCP servers configured in {agent.mcp.config_path}[/warning]"
+        )
+        console.print("[dim]Add one with `aegisx mcp add` (guided wizard).[/dim]")
+        return False
+    table = Table(title="🌐 MCP connect --all")
+    table.add_column("Server", style="bold")
+    table.add_column("Result")
+    table.add_column("Detail", max_width=60)
+    for server_id, names in connected.items():
+        table.add_row(server_id, "[success]connected[/success]", f"{len(names)} tool(s)")
+    for server_id, error in failures.items():
+        table.add_row(server_id, "[error]failed[/error]", error)
+    console.print(table)
+    for server_id in failures:
+        _print_doctor_hint(agent, server_id)
+    return not failures
 
 
 @mcp_app.command("disconnect")

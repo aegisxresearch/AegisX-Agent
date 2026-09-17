@@ -210,6 +210,33 @@ class MCPManager:
             definition.manifest.qualified_tool_name for definition in definitions
         ]
 
+    async def connect_all(self) -> tuple[dict[str, list[str]], dict[str, str]]:
+        """Connect every configured server; return ``(connected, failures)``.
+
+        One unreachable server never blocks the rest: its error is collected
+        under ``failures`` with the exception type, so the CLI can report per
+        server instead of aborting the whole batch.
+        """
+        servers = load_mcp_config(self._config_path)
+        self.validate_server_configs(servers)
+        connected: dict[str, list[str]] = {}
+        failures: dict[str, str] = {}
+        for server_id, server_config in servers.items():
+            if self.is_connected(server_id):
+                # Already live — report the tools it brought, don't re-dial.
+                connected[server_id] = [
+                    definition.manifest.qualified_tool_name
+                    for definition in self._definitions.get(f"mcp_{server_id}", [])
+                ]
+                continue
+            try:
+                connected[server_id] = await self.connect_server(
+                    server_id, server_config
+                )
+            except (MCPManagerError, MCPClientError, OSError) as error:
+                failures[server_id] = f"{type(error).__name__}: {error}"
+        return connected, failures
+
     async def disconnect_server(self, server_id: str) -> bool:
         """Unregister a server's tools and close its session.
 
