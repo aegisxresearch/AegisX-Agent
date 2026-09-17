@@ -156,6 +156,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_total_tokens=getattr(self.config, "max_tokens_per_turn", 0) or None,
+            force_tools=getattr(self.config, "force_tools", "auto"),
         )
 
         # Planning

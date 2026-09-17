@@ -81,6 +81,12 @@ class AgentConfig(BaseSettings):
 
     # === Agent settings ===
     max_iterations: int = Field(default=15, description="Max tool-calling iterations")
+    # "auto" forces a tool call on the first iteration only for task-shaped
+    # requests; "always"/"never" override that judgement.
+    force_tools: str = Field(
+        default="auto",
+        description="Require a tool call on the first iteration: auto|always|never",
+    )
     temperature: float = Field(default=0.7, description="LLM temperature")
     max_tokens: int = Field(default=4096, description="Max tokens per response")
     system_prompt: str = Field(default="", description="Custom system prompt override")

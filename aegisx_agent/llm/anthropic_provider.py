@@ -120,6 +120,7 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         self._validate_config()
         system_prompt, converted_messages = self._convert_messages(messages)
@@ -134,6 +135,12 @@ class AnthropicProvider(LLMProvider):
             payload["system"] = system_prompt
         if tools:
             payload["tools"] = self._convert_tools(tools)
+            # Anthropic spells the OpenAI selectors differently: "any" forces
+            # at least one tool, "auto" leaves the choice to the model.
+            if tool_choice == "required":
+                payload["tool_choice"] = {"type": "any"}
+            elif tool_choice:
+                payload["tool_choice"] = {"type": "auto"}
 
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
@@ -172,6 +179,7 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | LLMResponse]:
         """Stream Anthropic response (text chunks, then a final response).
 
@@ -193,6 +201,10 @@ class AnthropicProvider(LLMProvider):
             payload["system"] = system_prompt
         if tools:
             payload["tools"] = self._convert_tools(tools)
+            if tool_choice == "required":
+                payload["tool_choice"] = {"type": "any"}
+            elif tool_choice:
+                payload["tool_choice"] = {"type": "auto"}
 
         content_parts: list[str] = []
         tool_calls_by_index: dict[int, dict[str, Any]] = {}

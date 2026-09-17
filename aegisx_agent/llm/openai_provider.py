@@ -50,6 +50,34 @@ def _raise_with_server_message(resp: httpx.Response) -> None:
     raise httpx.HTTPStatusError(message, request=resp.request, response=resp) from None
 
 
+def _completion_missing(data: Any) -> bool:
+    """True when a decoded body carries no completion at all.
+
+    Cheap OpenAI-compatible routers answer ``HTTP 200`` with an error body
+    (``{"error": {...}}`` or a bare ``{"detail": ...}``) whenever their
+    upstream fails — accessing ``data["choices"]`` then raised a bare
+    ``KeyError: 'choices'`` in the chat UI. Such bodies are transient upstream
+    failures, so callers retry them like a 5xx and only surface the body once
+    the retries are spent.
+    """
+    if not isinstance(data, dict):
+        return True
+    choices = data.get("choices")
+    return not isinstance(choices, list) or not choices
+
+
+def _missing_choices_error(data: Any) -> LLMProviderError:
+    """Name the server failure instead of leaking ``KeyError: 'choices'``."""
+    try:
+        body = json.dumps(data)[:300]
+    except (TypeError, ValueError):
+        body = str(data)[:300]
+    return LLMProviderError(
+        "LLM server returned HTTP 200 without a completion payload "
+        f"(no 'choices'). Body: {body}"
+    )
+
+
 class OpenAIProvider(LLMProvider):
     """OpenAI API provider."""
 
@@ -57,6 +85,24 @@ class OpenAIProvider(LLMProvider):
         super().__init__(model, **kwargs)
         self.api_key = api_key
         self.base_url = kwargs.get("base_url", "https://api.openai.com/v1")
+        #: Set once a server rejects ``tool_choice: "required"``; later requests
+        #: skip the doomed attempt and go straight to "auto".
+        self._rejects_required_tool_choice = False
+
+    def _apply_tool_choice(
+        self,
+        payload: dict[str, Any],
+        tools: list[dict[str, Any]] | None,
+        tool_choice: str | None,
+    ) -> None:
+        """Attach tools, downgrading ``required`` for servers that refuse it."""
+        if not tools:
+            return
+        payload["tools"] = tools
+        choice = tool_choice or "auto"
+        if choice == "required" and self._rejects_required_tool_choice:
+            choice = "auto"
+        payload["tool_choice"] = choice
 
     def _validate_config(self) -> None:
         """Validate provider configuration before making requests."""
@@ -75,6 +121,7 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         self._validate_config()
         payload: dict[str, Any] = {
@@ -84,9 +131,7 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": max_tokens,
             "stream": False,
         }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+        self._apply_tool_choice(payload, tools, tool_choice)
 
         import asyncio
 
@@ -113,6 +158,13 @@ class OpenAIProvider(LLMProvider):
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait)
                         continue
+                elif resp.status_code == 400 and payload.get("tool_choice") == "required":
+                    # Not every OpenAI-compatible server knows "required".
+                    # Remember the refusal and re-ask with "auto" rather than
+                    # failing the user's whole turn on a capability probe.
+                    self._rejects_required_tool_choice = True
+                    payload["tool_choice"] = "auto"
+                    continue
                 elif resp.status_code >= 500 and attempt < max_retries - 1:
                     # Transient upstream failures (Cloudflare 520/522/524,
                     # origin 5xx) get a clean retry — non-streaming has no
@@ -122,6 +174,13 @@ class OpenAIProvider(LLMProvider):
 
                 _raise_with_server_message(resp)
                 data = resp.json()
+                if _completion_missing(data):
+                    # HTTP 200 with an error body: the router's upstream broke
+                    # mid-flight. Worth retrying, never worth showing raw.
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(min(2 ** attempt * 2, 8))
+                        continue
+                    raise _missing_choices_error(data)
                 break
 
         choice = None
@@ -130,10 +189,7 @@ class OpenAIProvider(LLMProvider):
             choice = data["choices"][0]
             message = choice.get("message") or {}
         except (KeyError, IndexError, TypeError) as exc:
-            raise LLMProviderError(
-                "LLM server returned HTTP 200 without a completion payload. "
-                f"Body: {json.dumps(data)[:300]}"
-            ) from exc
+            raise _missing_choices_error(data) from exc
 
         tool_calls = []
         if message.get("tool_calls"):
@@ -153,6 +209,7 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | LLMResponse]:
         """Stream a chat completion (yields text chunks, then a final response).
 
@@ -169,14 +226,13 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": max_tokens,
             "stream": True,
         }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+        self._apply_tool_choice(payload, tools, tool_choice)
 
         content_parts: list[str] = []
         tool_calls_by_index: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] = {}
+        stream_error: Any = None
 
         import asyncio as _asyncio
 
@@ -196,10 +252,18 @@ class OpenAIProvider(LLMProvider):
                     if resp.is_error:
                         await resp.aread()  # the body names the failure
                         status = resp.status_code
-                        # Transient upstream failures (Cloudflare 520/522/524,
-                        # origin 5xx) are worth a clean retry as long as no
-                        # text reached the user yet; 4xx never is.
-                        if status >= 500 and attempt < max_retries - 1 and not content_parts:
+                        can_retry = attempt < max_retries - 1 and not content_parts
+                        if status == 400 and payload.get("tool_choice") == "required":
+                            # The server does not know "required". Learn that and
+                            # re-ask with "auto" instead of failing the turn.
+                            self._rejects_required_tool_choice = True
+                            payload["tool_choice"] = "auto"
+                            retrying = True
+                        elif status >= 500 and can_retry:
+                            # Transient upstream failures (Cloudflare
+                            # 520/522/524, origin 5xx) are worth a clean retry
+                            # as long as no text reached the user yet; 4xx
+                            # never is.
                             retrying = True
                         else:
                             _raise_with_server_message(resp)
@@ -212,6 +276,11 @@ class OpenAIProvider(LLMProvider):
                                 break
                             chunk = json.loads(payload_text)
 
+                            if chunk.get("error"):
+                                # Some routers stream an error envelope in place
+                                # of a completion (HTTP 200, no 'choices').
+                                stream_error = chunk["error"]
+                                continue
                             if chunk.get("usage"):
                                 usage = chunk["usage"]
                             choices = chunk.get("choices") or []
@@ -243,10 +312,19 @@ class OpenAIProvider(LLMProvider):
                                     )
                                 if function.get("arguments"):
                                     entry["arguments"] += function["arguments"]
+            if not retrying and stream_error is not None and not content_parts:
+                # A 200 that carries an error envelope instead of a completion
+                # is an upstream failure, not an answer. Retry it, then surface
+                # the body rather than returning an empty turn.
+                if attempt < max_retries - 1:
+                    retrying = True
             if retrying:
                 await _asyncio.sleep(min(2**attempt * 2, 8))
                 continue
             break
+
+        if stream_error is not None and not content_parts and not tool_calls_by_index:
+            raise _missing_choices_error({"error": stream_error})
 
         tool_calls = [
             ToolCall(

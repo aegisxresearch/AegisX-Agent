@@ -25,6 +25,7 @@
 | 🌐 **MCP dengan wizard** | `aegisx mcp add` terpandu — pilih dari katalog server terkenal bawaan, isi placeholder, dan koneksi langsung diuji; `mcp doctor` mendiagnosis sisanya |
 | 💡 **Skill portabel** | Skill yang dipelajari agen bisa diekspor ke dan diimpor dari file yang bisa dibagikan (`/skills export\|import`) |
 | ↩️ **Undo & budget** | `/undo` membuang pertukaran terakhir; `AEGISX_MAX_TOKENS_PER_TURN` menghentikan turn dengan anggun saat budget habis |
+| 🛠️ **Turn yang mengutamakan tool** | Permintaan berbentuk tugas mewajibkan tool call di iterasi pertama (`AEGISX_FORCE_TOOLS=auto\|always\|never`); jawaban teks "paste kode Anda" diulang dengan tool dipaksa |
 
 ## 🚀 Mulai Cepat
 
@@ -440,6 +441,7 @@ AEGISX_CUSTOM_API_KEY=kunci-anda
 AEGISX_CUSTOM_MODEL=meta-llama/Llama-3-70b-chat-hf
 AEGISX_TEMPERATURE=0.7
 AEGISX_MAX_ITERATIONS=15
+AEGISX_FORCE_TOOLS=auto              # auto | always | never — wajibkan tool call pada turn berbentuk tugas
 AEGISX_MEMORY_ENABLED=true
 AEGISX_RAG_ENABLED=true
 AEGISX_SHELL_ENABLED=false

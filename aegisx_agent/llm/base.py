@@ -118,8 +118,14 @@ class LLMProvider(ABC):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
-        """Send a chat completion request."""
+        """Send a chat completion request.
+
+        ``tool_choice`` is the OpenAI-style selector (``"auto"``,
+        ``"required"``, or a specific function name). Providers that cannot
+        express it ignore the value instead of failing the request.
+        """
         ...
 
     @abstractmethod
@@ -129,6 +135,7 @@ class LLMProvider(ABC):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> AsyncIterator[str | LLMResponse]:
         """Stream a chat completion response.
 
@@ -146,6 +153,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         on_chunk: Any = None,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         """Stream one completion, forward chunks to ``on_chunk``, return the result.
 
@@ -159,6 +167,7 @@ class LLMProvider(ABC):
             tools=tools,
             temperature=temperature,
             max_tokens=max_tokens,
+            tool_choice=tool_choice,
         ):
             if isinstance(item, LLMResponse):
                 collected = item

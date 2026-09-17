@@ -30,7 +30,12 @@ user input (cli/interactive.py:_run_chat)
    + prompt memory + skill summaries + user model + permission policy
 → AgenticLoop.run/run_streaming (core/loop.py)
    → LLM call via UsageTracker → provider (llm/*.py, httpx)
+   → iterasi 0 & permintaan berbentuk tugas → tool_choice="required" (AEGISX_FORCE_TOOLS=auto|always|never);
+     server menolak (400)? → dicatat di _rejects_required_tool_choice dan diulang dengan "auto"
+   → jawaban teks tanpa tool yang menyuruh user paste kode → satu retry paksa tool (jalur non-streaming)
    → error HTTP? → _raise_with_server_message: body pesan server ikut naik (quota/model/key)
+   → HTTP 200 tanpa "choices", atau envelope error di stream? → dianggap gagal upstream: retry,
+     lalu LLMProviderError berisi body (bukan KeyError 'choices')
    → budget guard: AEGISX_MAX_TOKENS_PER_TURN tercapai → berhenti anggun (default off)
    → ada tool_calls? → on_tool_start(name, args) → ToolRegistry.execute (tools/registry.py)
       → PermissionGate.check (security/permissions.py)  ← fail-closed, audit ke JSONL

@@ -34,6 +34,7 @@ class SlowLLM(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         await asyncio.sleep(30)
         raise AssertionError("chat should have been cancelled by the timeout")
@@ -44,6 +45,7 @@ class SlowLLM(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> Any:
         await self.chat(messages)
         yield LLMResponse()  # pragma: no cover - unreachable
@@ -55,6 +57,7 @@ class SlowLLM(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         on_chunk: Any = None,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         return await self.chat(messages)
 

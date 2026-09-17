@@ -92,6 +92,7 @@ class ScriptedLLM(LLMProvider):
         super().__init__(model="scripted")
         self.responses = list(responses)
         self.seen_messages: list[list[Message]] = []
+        self.seen_tool_choices: list[str | None] = []
 
     async def chat(
         self,
@@ -99,8 +100,10 @@ class ScriptedLLM(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         self.seen_messages.append(list(messages))
+        self.seen_tool_choices.append(tool_choice)
         if not self.responses:
             raise AssertionError("ScriptedLLM ran out of scripted responses")
         return self.responses.pop(0)
@@ -111,9 +114,14 @@ class ScriptedLLM(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,
     ):
         response = await self.chat(
-            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tool_choice=tool_choice,
         )
         if response.content:
             yield response.content
@@ -126,10 +134,15 @@ class ScriptedLLM(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         on_chunk: Any = None,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         """Replay one scripted response, optionally forwarding its text."""
         response = await self.chat(
-            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tool_choice=tool_choice,
         )
         if on_chunk is not None and response.content:
             # Emit the text in small pieces, like a real stream would.

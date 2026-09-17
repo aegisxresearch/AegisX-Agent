@@ -12,14 +12,43 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from aegisx_agent.llm.base import LLMProvider, Message, Role, ToolCall
+from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, Role, ToolCall
 from aegisx_agent.tools.base import ToolResult
 from aegisx_agent.tools.registry import ToolRegistry
+
+#: Requests that plainly need project context. On these, the first iteration
+#: asks the server to *require* a tool call: weak OpenAI-compatible routers
+#: happily answer "paste your source code" without ever touching a tool.
+_TASK_REQUEST_HINTS = re.compile(
+    r"\b("
+    r"buat|buatkan|bikin|implement|refactor|perbaiki|fix|debug|analisis|analisa|"
+    r"pelajari|pahami|review|ubah|edit|tulis|write|tambah|tambahkan|hapus|delete|"
+    r"jalankan|run|test|uji|instal|install|update|setup|konfigurasi|config|"
+    r"cari|search|baca|read|scan|list|tampilkan|generate|jelaskan|"
+    r"code|kode|source|file|folder|repo|project|proyek|web|api|login|register|script|"
+    r"error|bug|"
+    r"paste|bagikan"
+    r")\b",
+    re.IGNORECASE,
+)
+
+#: "Paste your code and I'll take a look" — the model handing the work back
+#: instead of reading the project itself. Worth one forced-tool retry.
+_PUNT_HINTS = re.compile(
+    r"("
+    r"paste|bagikan|kirimkan|sertakan|unggah|upload|tempel|"
+    r"beri tahu|beritahu|silakan (kirim|bagikan)|"
+    r"share (your|the) (code|file)|provide (your|the) (code|file)|"
+    r"send (me )?(your|the) (code|file)"
+    r")",
+    re.IGNORECASE,
+)
 
 
 class StepOutcome(str, Enum):
@@ -141,6 +170,7 @@ class AgenticLoop:
         enable_recovery: bool = True,
         parallel_tools: bool = True,
         max_total_tokens: int | None = None,
+        force_tools: str = "auto",
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -152,6 +182,9 @@ class AgenticLoop:
         self.parallel_tools = parallel_tools
         #: Turn budget: stop gracefully once this many tokens are consumed.
         self.max_total_tokens = max_total_tokens
+        #: When to require a tool call on the first iteration:
+        #: ``auto`` (task-shaped requests), ``always``, or ``never``.
+        self.force_tools = force_tools
 
     async def run(
         self,
@@ -224,26 +257,33 @@ class AgenticLoop:
         # Build working messages
         working_messages = [Message(role=Role.SYSTEM, content=system_prompt)] + list(messages)
         tool_results_context: list[str] = []
+        force_tools = self._force_tools_for(messages, tool_schemas)
 
         for iteration in range(self.max_iterations):
             step = AgentStep(iteration=iteration + 1, thought="")
 
-            if use_stream:
-                # ONE streamed request per iteration; deltas flow to on_chunk.
-                response = await self.llm.run_streaming(
-                    messages=working_messages,
-                    tools=tool_schemas,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    on_chunk=on_chunk,
-                )
-            else:
-                # Non-streaming: providers keep their 429 retry logic here.
-                response = await self.llm.chat(
-                    messages=working_messages,
-                    tools=tool_schemas,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
+            # Iteration 0 may require a tool call; later iterations must be free
+            # to answer with plain text (that is how the turn ends).
+            required = "required" if (iteration == 0 and force_tools) else None
+            response = await self._complete(
+                working_messages, tool_schemas, use_stream, on_chunk, required
+            )
+
+            # Safety net (non-streaming only — streamed text is already on
+            # screen): a toolless first answer that punts the work back to the
+            # user is not an answer. Ask again, this time requiring a tool.
+            if (
+                iteration == 0
+                and not required
+                and not use_stream
+                and tool_schemas
+                and not response.has_tool_calls
+                and response.content
+                and _PUNT_HINTS.search(response.content)
+            ):
+                trace.total_tokens += response.usage.get("total_tokens", 0)
+                response = await self._complete(
+                    working_messages, tool_schemas, False, None, "required"
                 )
 
             trace.total_tokens += response.usage.get("total_tokens", 0)
@@ -355,6 +395,61 @@ class AgenticLoop:
         trace.final_response = final
         trace.duration_seconds = time.time() - start_time
         return final, trace
+
+    def _force_tools_for(
+        self,
+        messages: list[Message],
+        tool_schemas: list[dict[str, Any]] | None,
+    ) -> bool:
+        """Whether the first iteration should require a tool call."""
+        if not tool_schemas:
+            return False
+        if self.force_tools == "always":
+            return True
+        if self.force_tools == "never":
+            return False
+        last_user = next(
+            (
+                m.content or ""
+                for m in reversed(messages)
+                if m.role == Role.USER and m.content
+            ),
+            "",
+        )
+        return bool(_TASK_REQUEST_HINTS.search(last_user))
+
+    async def _complete(
+        self,
+        messages: list[Message],
+        tool_schemas: list[dict[str, Any]] | None,
+        use_stream: bool,
+        on_chunk: Any,
+        tool_choice: str | None = None,
+    ) -> LLMResponse:
+        """One LLM round trip, streamed or not.
+
+        ``tool_choice`` is only sent when we actually want to force a tool
+        call, so custom providers that predate the parameter keep working.
+        """
+        kwargs: dict[str, Any] = {"tool_choice": tool_choice} if tool_choice else {}
+        if use_stream:
+            # ONE streamed request per iteration; deltas flow to on_chunk.
+            return await self.llm.run_streaming(
+                messages=messages,
+                tools=tool_schemas,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                on_chunk=on_chunk,
+                **kwargs,
+            )
+        # Non-streaming: providers keep their 429 retry logic here.
+        return await self.llm.chat(
+            messages=messages,
+            tools=tool_schemas,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            **kwargs,
+        )
 
     async def toolless_stream(
         self,

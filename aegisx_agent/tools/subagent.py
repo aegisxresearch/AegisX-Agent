@@ -318,6 +318,7 @@ class SubagentTool(Tool):
         # tracker that wrapped it, without asking the agent for anything.
         child_llm = self._llm_factory()
         loop = AgenticLoop(
+            force_tools="always",
             llm=child_llm,
             tools=registry,
             max_iterations=self.max_steps,

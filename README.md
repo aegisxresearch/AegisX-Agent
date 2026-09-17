@@ -23,6 +23,7 @@
 | 🌐 **MCP with a wizard** | Guided `aegisx mcp add` — pick from a bundled catalog of well-known servers, fill in the placeholders, and the connection is tested immediately; `mcp doctor` diagnoses the rest |
 | 💡 **Portable skills** | The agent's learned skills can be exported to and imported from shareable files (`/skills export\|import`) |
 | ↩️ **Undo & budget** | `/undo` drops the last exchange; `AEGISX_MAX_TOKENS_PER_TURN` stops a turn gracefully when its budget is spent |
+| 🛠️ **Tool-first turns** | Task-shaped requests require a tool call on the first iteration (`AEGISX_FORCE_TOOLS=auto\|always\|never`); a text-only "paste your code" answer is retried with tools forced |
 
 ## 🚀 Quick Start
 
@@ -447,6 +448,7 @@ AEGISX_CUSTOM_API_KEY=your-key
 AEGISX_CUSTOM_MODEL=meta-llama/Llama-3-70b-chat-hf
 AEGISX_TEMPERATURE=0.7
 AEGISX_MAX_ITERATIONS=15
+AEGISX_FORCE_TOOLS=auto              # auto | always | never — require a tool call on task-shaped turns
 AEGISX_MEMORY_ENABLED=true
 AEGISX_RAG_ENABLED=true
 AEGISX_SHELL_ENABLED=false

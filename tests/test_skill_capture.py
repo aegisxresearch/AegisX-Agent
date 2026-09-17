@@ -78,6 +78,7 @@ def test_skill_capture_survives_llm_failure(tmp_path) -> None:
             tools: list[dict[str, Any]] | None = None,
             temperature: float = 0.7,
             max_tokens: int = 4096,
+            tool_choice: str | None = None,
         ) -> LLMResponse:
             raise ConnectionError("provider down")
 

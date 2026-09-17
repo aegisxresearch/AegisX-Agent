@@ -56,6 +56,7 @@ class OllamaProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,  # noqa: ARG002 — Ollama has no selector
     ) -> LLMResponse:
         payload: dict[str, Any] = {
             "model": self.model,
@@ -103,6 +104,7 @@ class OllamaProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        tool_choice: str | None = None,  # noqa: ARG002 — Ollama has no selector
     ) -> AsyncIterator[str | LLMResponse]:
         """Stream Ollama response (text chunks, then a final response).
 

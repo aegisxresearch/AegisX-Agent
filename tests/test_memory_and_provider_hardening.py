@@ -151,6 +151,11 @@ async def test_chat_retries_5xx(monkeypatch: Any) -> None:
 @pytest.mark.asyncio()
 async def test_chat_raises_provider_error_on_200_without_choices(monkeypatch: Any) -> None:
     calls: list[int] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakePostClient(
         [_FakeResponse(200, {"error": "upstream exploded"})], calls,
     ))
@@ -159,4 +164,6 @@ async def test_chat_raises_provider_error_on_200_without_choices(monkeypatch: An
 
     with pytest.raises(LLMProviderError, match="upstream exploded"):
         await provider.chat(messages=[Message(role=Role.USER, content="hai")])
-    assert len(calls) == 1  # 200-with-error-body is not retried
+    # A 200 with an error body is a failed upstream request, so it is retried
+    # like a 5xx before the body is surfaced.
+    assert len(calls) > 1
