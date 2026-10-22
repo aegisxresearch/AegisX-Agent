@@ -25,6 +25,27 @@ from aegisx_agent.cli.commands.code import (  # noqa: F401 — re-exported for t
     _handle_git_command,
     _handle_test_command,
 )
+from aegisx_agent.cli.commands.cyber import (  # noqa: F401 — re-exported for tests
+    cyber_agent as _cyber_agent,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_audit as _cyber_audit,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_capabilities as _cyber_capabilities,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_report as _cyber_report,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_sast as _cyber_sast,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_scan as _cyber_scan,
+)
+from aegisx_agent.cli.commands.cyber import (
+    cyber_swarm as _cyber_swarm,
+)
 from aegisx_agent.cli.commands.daemon import (  # noqa: F401 — re-exported for tests
     DAEMON_USAGE,
     _handle_daemon_command,
@@ -100,6 +121,7 @@ def _load_saved_config() -> dict[str, Any] | None:
     if CONFIG_FILE.exists():
         try:
             import json
+
             loaded: dict[str, Any] = json.loads(CONFIG_FILE.read_text())
             return loaded
         except (json.JSONDecodeError, Exception):
@@ -110,6 +132,7 @@ def _load_saved_config() -> dict[str, Any] | None:
 def _save_config(config: AgentConfig) -> None:
     """Save config to ~/.aegisx/config.json."""
     import json
+
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "provider": config.llm_provider.value,
@@ -138,6 +161,7 @@ def _get_config(
     custom_url: str | None = None,
 ) -> AgentConfig:
     from aegisx_agent.core.config import AgentConfig, LLMProvider, missing_credentials
+
     config = AgentConfig()
 
     # Load saved config first
@@ -250,11 +274,14 @@ def _get_agent(config: AgentConfig | None = None) -> AegisXAgent:
         except ValueError:
             # Auto setup wizard
             console.print()
-            console.print(Panel(
-                "[bold white]Welcome to AegisX Agent![/bold white]\n\n"
-                "Let's set up your AI provider.",
-                title="🚀 First Time Setup", border_style="green",
-            ))
+            console.print(
+                Panel(
+                    "[bold white]Welcome to AegisX Agent![/bold white]\n\n"
+                    "Let's set up your AI provider.",
+                    title="🚀 First Time Setup",
+                    border_style="green",
+                )
+            )
             console.print()
 
             config = _run_setup_wizard(config)
@@ -285,9 +312,7 @@ def _run_setup_wizard(config: AgentConfig) -> AgentConfig:
                 "Endpoint URL", default="https://openrouter.ai/api/v1"
             )
             config.custom_api_key = Prompt.ask("API Key", password=True)
-            config.custom_model = Prompt.ask(
-                "Model", default="anthropic/claude-3.5-sonnet"
-            )
+            config.custom_model = Prompt.ask("Model", default="anthropic/claude-3.5-sonnet")
 
         case "2":
             config.llm_provider = LLMProvider.OPENAI
@@ -363,10 +388,15 @@ def _permission_preview(request: PermissionRequest) -> Any | None:
         if more > 0:
             body += f"\n… +{more} more lines"
         return body
-    diff = list(difflib.unified_diff(
-        old.splitlines(), content.splitlines(),
-        fromfile="before", tofile="after", lineterm="",
-    ))[2:]  # drop the ---/+++ headers; the panel already says what file
+    diff = list(
+        difflib.unified_diff(
+            old.splitlines(),
+            content.splitlines(),
+            fromfile="before",
+            tofile="after",
+            lineterm="",
+        )
+    )[2:]  # drop the ---/+++ headers; the panel already says what file
     if not diff:
         return None
     if len(diff) > _PREVIEW_MAX_LINES:
@@ -444,14 +474,10 @@ schedule_app = typer.Typer(help="⏰ Manage and run scheduled tasks")
 def schedule_add(
     name: str = typer.Argument(..., help="Task name"),
     prompt: str = typer.Argument(..., help="Prompt the agent runs on schedule"),
-    every: str | None = typer.Option(
-        None, "--interval", "-e", help="Interval such as 30m, 2h, 1d"
-    ),
+    every: str | None = typer.Option(None, "--interval", "-e", help="Interval such as 30m, 2h, 1d"),
     daily: str | None = typer.Option(None, "--daily", help="Run once a day at HH:MM"),
     weekly: str | None = typer.Option(None, "--weekly", help="Run once a week at DAY:HH:MM"),
-    cron: str | None = typer.Option(
-        None, "--cron", help="Cron expression, e.g. '*/15 * * * *'"
-    ),
+    cron: str | None = typer.Option(None, "--cron", help="Cron expression, e.g. '*/15 * * * *'"),
     persona: str = typer.Option("default", "--persona", help="Persona used for the run"),
     timeout: int = typer.Option(120, "--timeout", help="Max seconds per run"),
 ) -> None:
@@ -700,9 +726,7 @@ def skills_import(
     except (FileNotFoundError, ValueError, SkillImportError) as exc:
         console.print(f"[error]Skill import failed: {exc}[/error]")
         raise typer.Exit(code=1) from exc
-    console.print(
-        f"[success]📥 Imported '{skill.name}' — {len(skill.steps)} steps[/success]"
-    )
+    console.print(f"[success]📥 Imported '{skill.name}' — {len(skill.steps)} steps[/success]")
     if skill.description:
         console.print(f"[dim]{skill.description}[/dim]")
 
@@ -747,9 +771,7 @@ def mcp_list() -> None:
 
 @mcp_app.command("connect")
 def mcp_connect(
-    server_id: str = typer.Argument(
-        None, help="Server id from the MCP config (omit with --all)"
-    ),
+    server_id: str = typer.Argument(None, help="Server id from the MCP config (omit with --all)"),
     config_file: Path | None = typer.Option(
         None,
         "--config",
@@ -796,9 +818,7 @@ async def _connect_every_server(agent: AegisXAgent) -> bool:
     """Connect all configured MCP servers; ``True`` when none failed."""
     connected, failures = await agent.connect_all_mcp_servers()
     if not connected and not failures:
-        console.print(
-            f"[warning]No MCP servers configured in {agent.mcp.config_path}[/warning]"
-        )
+        console.print(f"[warning]No MCP servers configured in {agent.mcp.config_path}[/warning]")
         console.print("[dim]Add one with `aegisx mcp add` (guided wizard).[/dim]")
         return False
     table = Table(title="🌐 MCP connect --all")
@@ -917,9 +937,7 @@ def mcp_search(
 
 
 @mcp_app.command("doctor")
-def mcp_doctor(
-    server_id: str = typer.Argument(..., help="Server id to diagnose")
-) -> None:
+def mcp_doctor(server_id: str = typer.Argument(..., help="Server id to diagnose")) -> None:
     """Diagnose why an MCP server will not connect."""
     import shutil as _shutil
 
@@ -971,6 +989,155 @@ app.add_typer(mcp_app, name="mcp")
 
 
 # ═══════════════════════════════════════════════════
+#  CYBER TYPER COMMANDS (aegisx cyber ...)
+# ═══════════════════════════════════════════════════
+
+cyber_app = typer.Typer(help="🛡️ Run authorised security assessments")
+
+
+@cyber_app.command("scan")
+def cyber_scan_command(
+    target: str = typer.Argument(..., help="Target URL to assess (must be authorised)"),
+    deep: bool = typer.Option(True, "--deep/--no-deep", help="Run the injection checks too"),
+    max_requests: int = typer.Option(2000, "--max-requests", help="Request budget"),
+    rate: float = typer.Option(10.0, "--rate", help="Requests per second"),
+    concurrency: int = typer.Option(6, "--concurrency", help="Concurrent requests"),
+    timeout: float = typer.Option(1800.0, "--timeout", help="Deadline in seconds"),
+    report_dir: str = typer.Option(
+        "", "--report-dir", help="Write SARIF/Markdown/HTML reports into this directory"
+    ),
+    report_format: str = typer.Option(
+        "all", "--report-format", help="sarif, markdown, html, or all"
+    ),
+    minimum_severity: str = typer.Option(
+        "info", "--min-severity", help="Lowest severity to show: info|low|medium|high|critical"
+    ),
+    allow_private: bool = typer.Option(
+        False,
+        "--allow-private",
+        help="Permit loopback and private addresses (own network only)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON"),
+) -> None:
+    """Run a deterministic security scan against an authorised target."""
+    _cyber_scan(
+        target=target,
+        deep=deep,
+        max_requests=max_requests,
+        rate=rate,
+        concurrency=concurrency,
+        timeout=timeout,
+        report_dir=report_dir,
+        report_format=report_format,
+        minimum_severity=minimum_severity,
+        allow_private=allow_private,
+        as_json=as_json,
+    )
+
+
+@cyber_app.command("sast")
+def cyber_sast_command(
+    path: str = typer.Argument(".", help="Directory or file to analyse"),
+    report_dir: str = typer.Option("", "--report-dir", help="Write the findings out as a report"),
+    report_format: str = typer.Option(
+        "all", "--report-format", help="sarif, markdown, html, or all"
+    ),
+    minimum_severity: str = typer.Option("info", "--min-severity", help="Lowest severity to show"),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON"),
+) -> None:
+    """Statically analyse a source tree for secrets, sinks, and misconfiguration."""
+    _cyber_sast(
+        path=path,
+        report_dir=report_dir,
+        report_format=report_format,
+        minimum_severity=minimum_severity,
+        as_json=as_json,
+    )
+
+
+@cyber_app.command("audit")
+def cyber_audit_command(
+    path: str = typer.Argument(".", help="Project root to read manifests from"),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON"),
+) -> None:
+    """Check a project's dependencies against the advisory database."""
+    _cyber_audit(path=path, as_json=as_json)
+
+
+@cyber_app.command("swarm")
+def cyber_swarm_command(
+    target: str = typer.Argument(..., help="Target URL to assess (must be authorised)"),
+    max_requests: int = typer.Option(2000, "--max-requests", help="Request budget"),
+    concurrency: int = typer.Option(4, "--concurrency", help="Concurrent lines of attack"),
+    timeout: float = typer.Option(1800.0, "--timeout", help="Deadline in seconds"),
+    report_dir: str = typer.Option(
+        "", "--report-dir", help="Write SARIF/Markdown/HTML reports into this directory"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON"),
+) -> None:
+    """Run several lines of attack concurrently, without the model."""
+    _cyber_swarm(
+        target=target,
+        max_requests=max_requests,
+        concurrency=concurrency,
+        timeout=timeout,
+        report_dir=report_dir,
+        as_json=as_json,
+    )
+
+
+@cyber_app.command("agent")
+def cyber_agent_command(
+    target: str = typer.Argument(..., help="Target URL to assess (must be authorised)"),
+    max_requests: int = typer.Option(2000, "--max-requests", help="Request budget"),
+    concurrency: int = typer.Option(4, "--concurrency", help="Concurrent lines of attack"),
+    timeout: float = typer.Option(1800.0, "--timeout", help="Deadline in seconds"),
+    verify: bool = typer.Option(
+        True, "--verify/--no-verify", help="Let the model review and dismiss false positives"
+    ),
+    report_dir: str = typer.Option(
+        "", "--report-dir", help="Write SARIF/Markdown/HTML reports into this directory"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON"),
+) -> None:
+    """Run the autonomous assessment: survey, plan, execute, verify, report."""
+    _cyber_agent(
+        target=target,
+        max_requests=max_requests,
+        concurrency=concurrency,
+        timeout=timeout,
+        verify=verify,
+        report_dir=report_dir,
+        as_json=as_json,
+    )
+
+
+@cyber_app.command("report")
+def cyber_report_command(
+    source: str = typer.Argument(..., help="A findings JSON file to re-render"),
+    directory: str = typer.Option("aegisx-report", "--dir", help="Output directory"),
+    report_format: str = typer.Option("all", "--format", help="sarif, markdown, html, or all"),
+    minimum_severity: str = typer.Option("info", "--min-severity", help="Lowest severity to show"),
+) -> None:
+    """Re-render a saved findings file into a different report format."""
+    _cyber_report(
+        source=source,
+        directory=directory,
+        report_format=report_format,
+        minimum_severity=minimum_severity,
+    )
+
+
+@cyber_app.command("capabilities")
+def cyber_capabilities_command() -> None:
+    """List the capabilities the engine can execute."""
+    _cyber_capabilities()
+
+
+app.add_typer(cyber_app, name="cyber")
+
+
+# ═══════════════════════════════════════════════════
 #  DAEMON TYPER COMMANDS (aegisx daemon run|status)
 # ═══════════════════════════════════════════════════
 
@@ -1015,6 +1182,7 @@ def audit_command(
 # ═══════════════════════════════════════════════════
 #  CLI ENTRY POINTS
 # ═══════════════════════════════════════════════════
+
 
 @app.command()
 def chat(
@@ -1111,9 +1279,7 @@ def run(
     text = (task or "").strip() or _read_piped_prompt()
     if not text:
         console.print("[error]No task given.[/error]")
-        console.print(
-            '[dim]Usage: aegisx run "your task"   or:  echo "task" | aegisx run[/dim]'
-        )
+        console.print('[dim]Usage: aegisx run "your task"   or:  echo "task" | aegisx run[/dim]')
         raise typer.Exit(code=1)
 
     config = _get_config(provider, model, api_key, custom_url)
@@ -1325,9 +1491,7 @@ def init() -> None:
 
     base_url = ""
     if provider == "ollama":
-        base_url = typer.prompt(
-            "Ollama base URL", default=str(saved.get("base_url") or ollama_url)
-        )
+        base_url = typer.prompt("Ollama base URL", default=str(saved.get("base_url") or ollama_url))
     elif provider == "custom":
         base_url = typer.prompt("Base URL", default=str(saved.get("base_url") or ""))
 
@@ -1431,9 +1595,7 @@ def update(
     if pip_probe.returncode == 0:
         reinstall = [[sys.executable, "-m", "pip", "install", "--quiet", "-e", str(root)]]
     elif shutil.which("uv"):
-        reinstall = [
-            ["uv", "pip", "install", "--python", sys.executable, "-e", str(root)]
-        ]
+        reinstall = [["uv", "pip", "install", "--python", sys.executable, "-e", str(root)]]
 
     if reinstall is None:
         console.print(
@@ -1458,6 +1620,24 @@ def update(
     console.print(f"✓ Updated to {target[:7]}.")
 
 
+def _print_version(value: bool) -> None:
+    """``--version`` prints the version and exits, before anything else runs.
+
+    Eager so it wins over the interactive chat the bare command would start:
+    a script that only wants the version must never block on a prompt.
+
+    The callback takes the option value only. Typer matches the callback
+    signature by annotation, and ``click.Parameter`` is not re-exported by
+    every Typer release, so the narrowest portable form wins here.
+    """
+    if not value:
+        return
+    from aegisx_agent import __version__
+
+    console.print(f"AegisX Agent {__version__}")
+    raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -1469,6 +1649,13 @@ def main(
         None,
         "--permission-mode",
         help="Tool permission mode: allow-all, ask (default), read-only",
+    ),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Print the version and exit",
+        callback=_print_version,
+        is_eager=True,
     ),
 ) -> None:
     """🤖 AegisX Agent — Super-powered Agentic AI with /commands."""

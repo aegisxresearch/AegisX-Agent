@@ -90,7 +90,14 @@ class AgentConfig(BaseSettings):
     temperature: float = Field(default=0.7, description="LLM temperature")
     max_tokens: int = Field(default=4096, description="Max tokens per response")
     system_prompt: str = Field(default="", description="Custom system prompt override")
-    persona: str = Field(default="default", description="Predefined persona name")
+    persona: str = Field(
+        default="default",
+        description=(
+            "Predefined persona name. 'default' is the general-purpose "
+            "assistant; 'pentester' (or 'hacker') switches to the "
+            "offensive-security doctrine for assessment work."
+        ),
+    )
 
     # === Memory settings ===
     memory_enabled: bool = Field(default=True, description="Enable conversation memory")
@@ -115,6 +122,48 @@ class AgentConfig(BaseSettings):
     project_context_enabled: bool = Field(
         default=True,
         description="Tell the agent where it is running (cwd, stack, git, AGENTS.md)",
+    )
+
+    # === Cyber mode ===
+    cyber_enabled: bool = Field(
+        default=False,
+        description=(
+            "Register the cyber tools (scan, sast, cve, report) and the "
+            "assessment playbooks in a chat session. Off by default: the "
+            "`aegisx cyber …` commands and the /cyber slash command work "
+            "without it, and turning it on adds the assessment tools and "
+            "about two thousand tokens of doctrine to every prompt."
+        ),
+    )
+    cyber_default_targets: str = Field(
+        default="",
+        description=(
+            "Comma-separated targets the cyber tools are scoped to. Empty "
+            "means the operator names the target in the conversation."
+        ),
+    )
+    cyber_max_requests: int = Field(
+        default=2000,
+        description="Request budget for one cyber assessment",
+    )
+    cyber_requests_per_second: float = Field(
+        default=10.0,
+        description="Rate limit for cyber requests, per second",
+    )
+    cyber_max_concurrency: int = Field(
+        default=6,
+        description="Concurrent cyber requests and lines of attack",
+    )
+    cyber_timeout_seconds: float = Field(
+        default=1800.0,
+        description="Wall-clock ceiling for one cyber assessment",
+    )
+    cyber_allow_private_addresses: bool = Field(
+        default=False,
+        description=(
+            "Allow cyber tools to contact loopback and private addresses. "
+            "Only turn this on for targets inside your own network."
+        ),
     )
 
     # === Subagent delegation ===
@@ -185,6 +234,11 @@ class AgentConfig(BaseSettings):
     def denied_tool_names(self) -> list[str]:
         """Tools that are refused before their risk is even considered."""
         return _split_tool_list(self.denied_tools)
+
+    @property
+    def cyber_target_names(self) -> list[str]:
+        """The hosts the cyber tools are scoped to, if any were configured."""
+        return _split_tool_list(self.cyber_default_targets)
 
     @property
     def audit_log_path(self) -> Path:
@@ -270,6 +324,28 @@ DEFAULT_PERSONAS: dict[str, str] = {
         "You are AegisX Hacker, a security-minded AI assistant. You understand cybersecurity, "
         "penetration testing, and ethical hacking. You help identify vulnerabilities, "
         "write security tools, and educate about defensive security practices."
+    ),
+    "pentester": (
+        "You are AegisX Pentester, an autonomous offensive-security agent working "
+        "inside an explicitly authorised scope.\n\n"
+        "How you work:\n"
+        "- You act, you do not advise. When a target is in scope, you run the "
+        "security tools yourself and report what the evidence shows.\n"
+        "- You distinguish severity from confidence. A confirmed flaw and a "
+        "probable one are different statements, and you label which is which.\n"
+        "- Every claim carries its evidence: the request, the response, the "
+        "source line. A finding nobody can reproduce is a finding nobody will "
+        "fix.\n"
+        "- You stay inside the authorised scope even when a redirect, a link, "
+        "or a certificate points somewhere else. Say that you found it out of "
+        "scope instead of following it.\n"
+        "- You do not inflate. A missing header is a low finding, not a "
+        "critical one. You would rather under-report than train the reader to "
+        "ignore you.\n"
+        "- You never speculate about a vulnerability you did not observe.\n\n"
+        "How you write: lead with what is exploitable and what it would take "
+        "an attacker, then the remediation. Plain language, no filler, no "
+        "restating the finding back at the reader."
     ),
     "scientist": (
         "You are AegisX Scientist, a rigorous scientific assistant. You apply the scientific "

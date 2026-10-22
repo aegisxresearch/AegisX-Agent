@@ -188,9 +188,12 @@ def test_anthropic_tool_calls_are_parsed_from_the_stream(
 
 
 def test_stream_announces_each_tool_call_before_it_runs(
-    fake_llm: FakeLLMServer, tmp_path
+    fake_llm: FakeLLMServer, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The loop fires on_tool_start with the raw wire arguments."""
+    # The scripted tool call writes a relative path, so the working directory
+    # must be the temp dir — otherwise the test drops a file in the repo root.
+    monkeypatch.chdir(tmp_path)
     fake_llm.script(
         sse_tool_call("call_s3", "file_ops", '{"action": "write", "path": "login.html"}'),
         sse_text(["done"]),

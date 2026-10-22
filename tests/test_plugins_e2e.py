@@ -106,7 +106,13 @@ def test_plugin_tool_call_round_trips_through_the_full_agent_loop(
 def test_a_dangerous_plugin_is_denied_in_read_only_mode_inside_the_loop(
     fake_llm: FakeLLMServer, tmp_path
 ) -> None:
-    """The gate still refuses a gated plugin mid-loop; the LLM sees the denial."""
+    """The gate still refuses a gated plugin mid-loop; the LLM sees the denial.
+
+    A denial is a policy decision, not a broken call, so it does not get a
+    recovery consultation: recovery would only ask the model for a
+    substitute tool, which is how a refusal used to turn into a retry of the
+    same refused call.
+    """
     manifest = PluginManifest(
         plugin_id="guarded",
         version="1.0.0",
@@ -121,11 +127,6 @@ def test_a_dangerous_plugin_is_denied_in_read_only_mode_inside_the_loop(
 
     fake_llm.script(
         openai_tool_call_response("call_guarded", "plugin_guarded_read", "{}"),
-        # A denied tool triggers one recovery consultation first.
-        openai_text_response(
-            '{"analysis": "denied by policy", "fix_suggestion": "none", '
-            '"alternative_tool": null, "alternative_args": null}'
-        ),
         openai_text_response("I could not access that."),
     )
     agent = _agent(fake_llm, tmp_path, permission_mode=PermissionMode.READ_ONLY)
@@ -135,14 +136,11 @@ def test_a_dangerous_plugin_is_denied_in_read_only_mode_inside_the_loop(
 
     assert answer == "I could not access that."
 
-    # Three calls: tool request, recovery consultation, loop continuation.
-    assert len(fake_llm.requests) == 3
-
-    # The recovery turn is a plain consultation: no tools offered.
-    assert "tools" not in fake_llm.requests[1][1]
+    # Two calls: the tool request, then the continuation. No recovery turn.
+    assert len(fake_llm.requests) == 2
 
     # The denial reached the LLM as a tool message on the continuation turn.
-    _, continuation = fake_llm.requests[2]
+    _, continuation = fake_llm.requests[1]
     tool_message = continuation["messages"][-1]
     assert tool_message["role"] == "tool"
     assert "Permission denied" in tool_message["content"]

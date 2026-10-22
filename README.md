@@ -24,6 +24,7 @@
 | 💡 **Portable skills** | Export a learned skill to a file, or import one from a file, a **gist share link**, or any raw URL (`aegisx skills …`, `/skills …`) |
 | ↩️ **Undo & budget** | `/undo` drops the last exchange; `AEGISX_MAX_TOKENS_PER_TURN` stops a turn gracefully when its budget is spent |
 | 🛠️ **Tool-first turns** | Task-shaped requests require a tool call on the first iteration (`AEGISX_FORCE_TOOLS=auto\|always\|never`); a text-only "paste your code" answer is retried with tools forced |
+| 🛡️ **Cyber mode** | Authorised security assessment out of the box: scoped scans, SAST, advisory lookup, an autonomous pentest agent (survey → plan → execute → escalate → verify), and SARIF/Markdown/HTML reports |
 
 ## 🚀 Quick Start
 
@@ -133,6 +134,15 @@ aegisx personas           # List available personas
 aegisx tools              # List available tools and their risk level
 aegisx config-info        # Show current configuration
 
+# Security assessment (always available; no key needed)
+aegisx cyber scan https://app.example.com    # Deterministic scan: recon → checks → findings
+aegisx cyber sast ./src                      # Static analysis: secrets, sinks, misconfiguration
+aegisx cyber audit .                         # Dependency advisories (OSV + offline fallback)
+aegisx cyber swarm https://app.example.com   # Several lines of attack at once, no model
+aegisx cyber agent https://app.example.com   # Autonomous: survey → plan → execute → escalate → verify
+aegisx cyber report findings.json --dir out  # Re-render saved findings as SARIF/Markdown/HTML
+aegisx cyber capabilities                    # What the engine can actually run
+
 # Safety
 aegisx chat --permission-mode read-only   # Only let read-only tools run
 aegisx chat --permission-mode allow-all   # Gate nothing (still audited)
@@ -234,7 +244,82 @@ aegisx --persona researcher
 # Save to ~/.aegisx/personas/my_persona.txt
 ```
 
-Built-in personas: `default`, `coder`, `researcher`, `analyst`, `creative`, `hacker`, `scientist`
+Built-in personas: `default` (default), `pentester`, `hacker`, `coder`, `researcher`, `analyst`, `creative`, `scientist`
+
+`default` is the general-purpose assistant — it is what a plain session gets.
+Switch to `pentester` when you want the offensive-security doctrine instead:
+`aegisx --persona pentester` (or `AEGISX_PERSONA=pentester`), and `/code` in
+chat to switch to coding mode.
+
+## 🛡️ Cyber mode
+
+The commands below always work — they drive the engine directly and need no API
+key for the deterministic paths. What is opt-in is *conversational* cyber
+mode: `AEGISX_CYBER_ENABLED=true` registers the four assessment tools in a
+chat session and sends the playbooks below with the system prompt, so the
+model can run a scan by itself. Off by default, because that adds the tools
+and roughly two thousand tokens of doctrine to every prompt. Nothing is
+scanned until you name a target — the tools take the target from the request,
+and the scope guard decides whether it may be contacted.
+
+```bash
+aegisx cyber scan <url>     # headers, cookies, TLS, CORS, exposure, injection, access control
+aegisx cyber sast <path>    # committed secrets, dangerous sinks, framework misconfiguration
+aegisx cyber audit <path>   # dependencies against OSV, with a bundled offline fallback
+aegisx cyber swarm <url>    # the same checks as parallel lines of attack
+aegisx cyber agent <url>    # the autonomous agent (below)
+```
+
+Inside a chat session the same engine is available as a slash command:
+
+```text
+/cyber scan <url>           /cyber status
+/cyber sast [path]          /cyber scope <url>
+/cyber audit [path]         /cyber capabilities
+/cyber agent <url>          /cyber help
+```
+
+### What the autonomous agent does
+
+```text
+survey   → map the target with no model in the loop (endpoints, technologies, robots.txt)
+plan     → the model chooses lines of attack from a fixed capability catalogue
+run      → the swarm executes them concurrently, each with only the capabilities it was granted
+escalate → the findings of the first wave are fed back; the model may plan one narrower
+           follow-up wave, or decline when nothing is worth following
+verify   → the model may dismiss false positives, with a stated reason, under a retention
+           floor (it cannot erase the report) and a protected severity (info/low are never dismissed)
+report   → SARIF 2.1.0, Markdown, and a self-contained HTML file
+```
+
+A plan can only name a capability the engine implements, so it can never
+invent a technique that does not exist. A dismissal is recorded in the report
+as an INFO finding rather than deleted, so the review is visible and can be
+challenged. When no model is configured the agent still runs: it falls back to
+the engine's default plan and skips verification.
+
+### Scope guarantees
+
+These are enforced at the network boundary, before any request is sent, and
+cannot be widened by the model, by a redirect, or by a discovered host:
+
+- only the hosts you named (plus any `extra_hosts` you configured) are contacted;
+- loopback, private, link-local, multicast, and cloud-metadata addresses are refused
+  unless you pass `--allow-private` / `AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=true`;
+- a redirect is followed only if the *next* host is also in scope;
+- a request budget, a per-host budget, a rate limit, a concurrency cap, and a deadline apply to every check;
+- only `GET`, `HEAD`, and read-only `POST` probes are used — no check writes to the target.
+
+Every finding carries its evidence (request line, response status, body snippet)
+and separates severity from confidence, so "confirmed critical" and "probable
+medium" mean different things in the report.
+
+### Shipped playbooks
+
+`recon-survey`, `injection-hunt`, `authn-review`, `authz-review`, `api-abuse`,
+`business-logic`, `cloud-posture`, `supply-chain-review`, `finding-discipline`.
+They are procedures, not capabilities: the engine decides what is true, the
+playbook decides what order to work in and what counts as proof.
 
 ## 🔧 Tools
 
@@ -255,6 +340,10 @@ Built-in personas: `default`, `coder`, `researcher`, `analyst`, `creative`, `hac
 | `code_edit` | caution | Edit files with diff preview |
 | `git` | varies | Git status / diff / commit / branch |
 | `run_tests` | varies | Auto-detect and run the test suite |
+| `cyber_scan` | dangerous | Scoped security scan of an authorised target (cyber mode) |
+| `cyber_sast` | caution | Static analysis of a source tree (cyber mode) |
+| `cyber_cve` | safe | Dependency advisory lookup (cyber mode) |
+| `cyber_report` | safe | Render collected findings as SARIF / Markdown / HTML (cyber mode) |
 
 ## 🔐 Permissions
 
@@ -436,6 +525,12 @@ paths, the audit log and its redaction, the scheduler, the skill library,
 provider wire-format conversion, and end-to-end runs against a fake
 OpenAI/Anthropic-compatible HTTP server.
 
+The cyber engine has its own suite (`tests/test_cyber_*.py`): every check
+against a scripted target, the scope guard's refusals, the crawler's
+same-origin rule, the swarm's capability grants and corroboration, the
+agent's two-wave escalation and bounded review, static analysis and advisory
+matching, the reporters, and the CLI commands.
+
 ## 🪝 Git hooks
 
 Security hooks (commit-message filters, pre-push secret guard) are versioned
@@ -474,6 +569,16 @@ AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
 AEGISX_ALLOWED_TOOLS=                # e.g. execute_code,run_tests
 AEGISX_DENIED_TOOLS=                 # e.g. shell
 AEGISX_AUDIT_LOG_ENABLED=true
+
+# Cyber mode (the commands always work; this turns on the chat tools)
+AEGISX_CYBER_ENABLED=true            # default: false
+AEGISX_PERSONA=default               # default | pentester | coder | researcher | …
+AEGISX_CYBER_DEFAULT_TARGETS=        # comma-separated hosts, or empty to name one per request
+AEGISX_CYBER_MAX_REQUESTS=2000
+AEGISX_CYBER_REQUESTS_PER_SECOND=10
+AEGISX_CYBER_MAX_CONCURRENCY=6
+AEGISX_CYBER_TIMEOUT_SECONDS=1800
+AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=false   # loopback/private targets: own network only
 ```
 
 ## 🧩 Plugins and autonomous tasks
@@ -628,11 +733,23 @@ aegisx_agent/                 # flat package at the repo root (no src/)
 │   ├── scheduler_api.py      # Scheduled-task and scheduler-daemon API
 │   ├── loop.py               # Agentic tool-use loop (streaming + retry)
 │   └── config.py             # Configuration (pydantic-settings)
+├── cyber/                    # Security assessment engine
+│   ├── scope.py              # Scope guard: allowlist, budgets, deadline, private-address refusal
+│   ├── prober.py             # The only network path: scoped, rate-limited, evidence-capturing
+│   ├── recon.py              # Crawler, fingerprinting, port and subdomain discovery
+│   ├── checks/               # One narrow check per module (headers, injection, authz, …)
+│   ├── swarm.py              # Parallel lines of attack with per-line capability grants
+│   ├── agent.py              # Autonomous agent: survey → plan → execute → escalate → verify
+│   ├── playbooks.py          # Shipped pentest procedures
+│   ├── sast.py               # Static analysis: secrets, sinks, misconfiguration, manifests
+│   ├── cve.py                # OSV advisories with a bundled offline fallback
+│   ├── report.py             # SARIF 2.1.0, Markdown, self-contained HTML
+│   └── tools.py              # cyber_scan / cyber_sast / cyber_cve / cyber_report
 ├── cli/                      # Rich terminal CLI
 │   ├── app.py                # Shared Typer app + Rich console (single source)
 │   ├── main.py               # Config plumbing + typer entry points
 │   ├── interactive.py        # Chat loop, animated progress, slash dispatch
-│   ├── commands/             # Slash handlers: permissions, code, schedule
+│   ├── commands/             # Slash handlers: permissions, code, cyber, schedule
 │   └── __init__.py           # Re-exports for programmatic use
 ├── plugins/                  # Versioned tool manifests and explicit loader
 ├── security/                 # Permission gate + audit log

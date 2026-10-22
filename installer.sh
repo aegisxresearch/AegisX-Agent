@@ -7,6 +7,7 @@
 # or, from an existing checkout:
 #
 #   ./installer.sh            # install this checkout in place
+#   ./installer.sh --dir DIR  # copy this checkout into DIR and install there
 #   ./installer.sh --help     # all options
 #
 # What it does:
@@ -39,6 +40,7 @@ PYTHON_VERSION="3.11"   # version uv provisions when no suitable python exists
 
 REF="$DEFAULT_REF"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+INSTALL_DIR_EXPLICIT=0        # 1 when --dir was passed on the command line
 BIN_DIR="$DEFAULT_BIN_DIR"
 WITH_MCP=0
 WITH_DEV=0
@@ -61,6 +63,64 @@ ok()    { printf '%s\n' "${C_OK}✓${C_OFF} $*"; }
 err()   { printf '%s\n' "${C_ERR}error:${C_OFF} $*" >&2; }
 die()   { err "$*"; exit 1; }
 ask()   { [ "$ASSUME_YES" = 1 ] && return 0; read -r -p "$1 [y/N] " reply; [ "${reply:-}" = y ] || [ "${reply:-}" = Y ]; }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Small helpers
+#
+# `sed -i` is spelled differently on GNU (no suffix argument) and BSD/macOS
+# (an empty suffix argument), so every in-place edit goes through
+# sed_delete_line. `rm -rf` on a path the user typed gets one extra guard:
+# an empty string, "/", or "$HOME" must never reach it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+sed_delete_line() {
+  local file="$1" number="$2"
+  if sed --version >/dev/null 2>&1; then
+    sed -i "${number}d" "$file"
+  else
+    sed -i '' "${number}d" "$file"
+  fi
+}
+
+safe_rm_rf() {
+  local target="${1:-}" resolved home_resolved
+  [ -n "$target" ] || die "refusing to remove an empty path"
+  resolved="$target"
+  if [ -d "$target" ]; then
+    resolved="$(cd "$target" 2>/dev/null && pwd -P)" || resolved="$target"
+  fi
+  home_resolved="$(cd "$HOME" 2>/dev/null && pwd -P)" || home_resolved="$HOME"
+  case "$resolved" in
+    /)              die "refusing to remove the filesystem root" ;;
+    "$home_resolved") die "refusing to remove \$HOME ($resolved)" ;;
+  esac
+  rm -rf -- "$target"
+}
+
+# The wrapper is `exec "<install dir>/aegisx" "$@"`; read the install dir back
+# so --uninstall removes the tree the wrapper actually points at.
+wrapper_install_dir() {
+  local wrapper="$1" launcher
+  [ -f "$wrapper" ] || return 0
+  launcher="$(sed -nE 's/^exec[[:space:]]+"([^"]*)".*/\1/p' "$wrapper" | head -n 1)"
+  [ -n "$launcher" ] || return 0
+  dirname "$launcher"
+}
+
+# Copy a working checkout to another directory. Used when --dir is given while
+# running from a checkout, so --dir is never silently ignored.
+copy_checkout() {
+  local src="$1" dst="$2"
+  case "$dst" in
+    "$src"|"$src"/*) die "cannot install into $dst: it is inside the checkout" ;;
+  esac
+  info "Copying this checkout to $dst"
+  mkdir -p "$dst"
+  tar -C "$src" \
+    --exclude=./.venv --exclude=./.git --exclude=./.agents \
+    --exclude=./.freebuff-snapshots --exclude='*/__pycache__' --exclude='*.pyc' \
+    -cf - . | tar -C "$dst" -xf -
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stale rc cleanup: an earlier manual install often left shell rc lines —
@@ -87,7 +147,12 @@ clean_stale_rc_entries() {
       case "$trimmed_lc" in
         \#*) continue ;;                       # comments are left alone
         *alias\ aegisx=*)
-          target="${trimmed#*alias aegisx=}"
+          # Case-insensitive prefix strip. Matching on the lowered copy but
+          # slicing the original line silently produced the whole line as the
+          # "target" for `Alias Aegisx=` — which then looked like a dead path.
+          target="$(printf '%s\n' "$trimmed" \
+            | sed -E 's/^[Aa][Ll][Ii][Aa][Ss][[:space:]]+[Aa][Ee][Gg][Ii][Ss][Xx]=//')"
+          [ "$target" = "$trimmed" ] && continue   # not an alias assignment
           # Quoted value: cut at the first matching close quote, so a trailing
           # inline comment is ignored; unquoted: cut at the first space.
           case "$target" in
@@ -100,8 +165,11 @@ clean_stale_rc_entries() {
           [ -n "$target" ] && [ -e "$target" ] && continue
           ;;
         *export\ PATH=*|*path=*)
-          dir="${trimmed#*PATH=}"
-          [ "$dir" = "$trimmed" ] && dir="${trimmed#*path=}"
+          # `export` is optional; the value must start with PATH= so that
+          # lookalikes (AEGISX_PATH=...) are not mistaken for PATH entries.
+          dir="$(printf '%s\n' "$trimmed" \
+            | sed -E 's/^([Ee][Xx][Pp][Oo][Rr][Tt][[:space:]]+)?[Pp][Aa][Tt][Hh]=//')"
+          [ "$dir" = "$trimmed" ] && continue   # not a PATH assignment
           dir="${dir#\"}"; dir="${dir#\'}"      # opening quote
           dir="${dir%%:*}"                       # first PATH segment
           dir="${dir%\"}"; dir="${dir%\'}"      # closing quote / stray
@@ -121,7 +189,7 @@ clean_stale_rc_entries() {
       backup="$rc.bak-aegisx-$(date +%Y%m%d-%H%M%S)"
       cp "$rc" "$backup"
       for n in $(printf '%s\n' "$numbers" | tr ' ' '\n' | sort -rn); do
-        sed -i "${n}d" "$rc"
+        sed_delete_line "$rc" "$n"
       done
       ok "Removed $removed stale aegisx line(s) from $rc (backup: $backup)"
     fi
@@ -136,7 +204,8 @@ Usage:
   installer.sh [options]
 
 Options:
-  --dir <path>       Install location (default: $DEFAULT_INSTALL_DIR)
+  --dir <path>       Install location (default: $DEFAULT_INSTALL_DIR).
+                     From a checkout the tree is copied there first.
   --bin <path>       Directory for the aegisx wrapper (default: $DEFAULT_BIN_DIR)
   --ref <git-ref>    Branch or tag to install (default: $DEFAULT_REF)
   --with-mcp         Also install the optional MCP extra (mcp 2.x)
@@ -156,7 +225,7 @@ EOF
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dir)       [ $# -ge 2 ] || die "--dir needs a path";   INSTALL_DIR="$2"; shift 2 ;;
+    --dir)       [ $# -ge 2 ] || die "--dir needs a path";   INSTALL_DIR="$2"; INSTALL_DIR_EXPLICIT=1; shift 2 ;;
     --bin)       [ $# -ge 2 ] || die "--bin needs a path";   BIN_DIR="$2"; shift 2 ;;
     --ref|--branch) [ $# -ge 2 ] || die "$1 needs a value";  REF="$2"; shift 2 ;;
     --with-mcp)  WITH_MCP=1; shift ;;
@@ -171,19 +240,47 @@ while [ $# -gt 0 ]; do
 done
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Source tree: this checkout, an existing install, or a fresh clone
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+IN_REPO=0
+SCRIPT_DIR=""
+if [ -n "$SCRIPT_PATH" ] && [ -f "$SCRIPT_PATH" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  [ -f "$SCRIPT_DIR/pyproject.toml" ] && IN_REPO=1
+fi
+
+VENV="$INSTALL_DIR/.venv"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Uninstall path
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [ "$UNINSTALL" = 1 ]; then
-  info "Removing $INSTALL_DIR"
-  rm -rf "$INSTALL_DIR"
+  # Remove the tree the wrapper points at, not just the default location: an
+  # install made from a checkout lives somewhere else entirely.
+  TARGET_DIR="$INSTALL_DIR"
+  recorded="$(wrapper_install_dir "$BIN_DIR/aegisx")"
+  [ -n "$recorded" ] && TARGET_DIR="$recorded"
+
+  if [ -n "$SCRIPT_DIR" ] && [ "$TARGET_DIR" = "$SCRIPT_DIR" ]; then
+    # The install *is* this checkout: deleting the source tree would throw
+    # away the user's working copy, so only the installed venv goes.
+    info "The install is this checkout — keeping the source tree"
+    safe_rm_rf "$TARGET_DIR/.venv"
+  else
+    info "Removing $TARGET_DIR"
+    safe_rm_rf "$TARGET_DIR"
+  fi
+
   if [ -e "$BIN_DIR/aegisx" ]; then
     info "Removing $BIN_DIR/aegisx"
     rm -f "$BIN_DIR/aegisx"
   fi
   if [ "$PURGE" = 1 ] && [ -e "$DATA_DIR" ]; then
     if ask "Also delete all AegisX data in $DATA_DIR (config, skills, scheduler DB)?"; then
-      rm -rf "$DATA_DIR"
+      safe_rm_rf "$DATA_DIR"
       ok "Purged $DATA_DIR"
     else
       info "Kept $DATA_DIR"
@@ -194,19 +291,6 @@ if [ "$UNINSTALL" = 1 ]; then
   ok "AegisX Agent uninstalled"
   exit 0
 fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Source tree: this checkout, an existing install, or a fresh clone
-# ─────────────────────────────────────────────────────────────────────────────
-
-SCRIPT_PATH="${BASH_SOURCE[0]:-}"
-IN_REPO=0
-if [ -n "$SCRIPT_PATH" ] && [ -f "$SCRIPT_PATH" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-  [ -f "$SCRIPT_DIR/pyproject.toml" ] && IN_REPO=1
-fi
-
-VENV="$INSTALL_DIR/.venv"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -228,8 +312,14 @@ install_deps_into_venv() {
 }
 
 if [ "$IN_REPO" = 1 ]; then
-  info "Running from a checkout: installing $SCRIPT_DIR in place"
-  INSTALL_DIR="$SCRIPT_DIR"
+  if [ "$INSTALL_DIR_EXPLICIT" = 1 ]; then
+    # --dir was asked for explicitly: honour it instead of silently ignoring
+    # it and installing the checkout where it happens to sit.
+    copy_checkout "$SCRIPT_DIR" "$INSTALL_DIR"
+  else
+    info "Running from a checkout: installing $SCRIPT_DIR in place"
+    INSTALL_DIR="$SCRIPT_DIR"
+  fi
   VENV="$INSTALL_DIR/.venv"
 else
   if [ -d "$INSTALL_DIR/.git" ]; then
@@ -262,7 +352,27 @@ else
   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
     || die "python3 is $(python3 -V 2>&1 | cut -d' ' -f2); AegisX needs >= 3.10. Or install uv and rerun."
   info "Creating venv with python3 -m venv"
-  python3 -m venv --clear "$VENV"
+  venv_error="$(mktemp)"
+  if ! python3 -m venv --clear "$VENV" 2>"$venv_error"; then
+    err "python3 -m venv failed:"
+    sed 's/^/  /' "$venv_error" >&2
+    rm -f "$venv_error"
+    if have virtualenv; then
+      info "Retrying with virtualenv"
+      virtualenv --clear "$VENV"
+    else
+      die "Debian/Ubuntu ship venv separately: install it with 'sudo apt install python3-venv', or install uv (https://docs.astral.sh/uv/) and rerun."
+    fi
+  else
+    rm -f "$venv_error"
+  fi
+  # A venv without pip cannot install anything: ensurepip is a separate Debian
+  # package, and a broken venv leaves no pip behind.
+  if ! "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
+    info "Bootstrapping pip into the venv"
+    "$VENV/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 \
+      || die "the venv has no pip and ensurepip is unavailable. Recreate it with uv or virtualenv and rerun."
+  fi
 fi
 
 install_deps_into_venv
@@ -272,7 +382,7 @@ install_deps_into_venv
 # ─────────────────────────────────────────────────────────────────────────────
 
 VERSION="$("$VENV/bin/python" -c 'import aegisx_agent; print(aegisx_agent.__version__)')"
-"$VENV/bin/aegisx" --help >/dev/null
+"$VENV/bin/aegisx" --help >/dev/null 2>&1
 ok "AegisX Agent $VERSION installed in $INSTALL_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -287,6 +397,16 @@ exec "$INSTALL_DIR/aegisx" "\$@"
 WRAPPER
 chmod +x "$BIN_DIR/aegisx"
 ok "Wrote $BIN_DIR/aegisx"
+
+# The wrapper must actually work. A launcher that lost its executable bit, or
+# a venv without the package, only fails later — when the user runs the
+# command and gets "No such file or directory".
+[ -f "$INSTALL_DIR/aegisx" ] || die "the launcher $INSTALL_DIR/aegisx is missing"
+chmod +x "$INSTALL_DIR/aegisx" 2>/dev/null || true
+if ! "$BIN_DIR/aegisx" --version >/dev/null 2>&1; then
+  die "the installed wrapper does not run: $BIN_DIR/aegisx --version failed"
+fi
+ok "Verified $BIN_DIR/aegisx --version"
 
 # A stale `alias aegisx=...` in an rc file shadows this wrapper, so sweep rc
 # files for provably dead entries before telling the user everything is ready.

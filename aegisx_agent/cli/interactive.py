@@ -208,6 +208,7 @@ COMMANDS = {
     "/tools":     {"desc": "List available tools", "icon": "🔧"},
     "/skills":    {"desc": "Skills: list/show/export/import/search", "icon": "💡"},
     "/code":      {"desc": "Coding mode — analyze/edit/run tests", "icon": "💻"},
+    "/cyber":     {"desc": "Security mode — scan/sast/audit/swarm/agent", "icon": "🛡️"},
     "/git":       {"desc": "Git operations (status/diff/commit)", "icon": "📦"},
     "/test":      {"desc": "Run project tests", "icon": "🧪"},
     "/schedule":  {"desc": "Manage & run scheduled tasks", "icon": "⏰"},
@@ -234,6 +235,7 @@ _COMMAND_GROUPS: list[tuple[str, list[str]]] = [
     ("Session", ["/help", "/status", "/config", "/sessions", "/resume", "/undo", "/clear", "/quit"]),  # noqa: E501
     ("Model & behavior", ["/model", "/provider", "/persona", "/learn"]),
     ("Coding", ["/code", "/git", "/test"]),
+    ("Security", ["/cyber"]),
     ("Knowledge", ["/skills", "/ingest"]),
     ("Automation", ["/schedule", "/daemon", "/plugin", "/mcp"]),
     ("Observability", ["/usage", "/audit", "/permissions"]),
@@ -341,6 +343,14 @@ def _handle_slash_command(cmd: str, agent: AegisXAgent) -> bool:
 
         case "/code":
             _handle_code_command(args, agent)
+            return True
+
+        case "/cyber":
+            # The security engine's verbs live in commands/cyber.py so the
+            # slash command and `aegisx cyber …` cannot drift apart.
+            from aegisx_agent.cli.commands.cyber import _handle_cyber_command
+
+            _handle_cyber_command(args, agent)
             return True
 
         case "/git":

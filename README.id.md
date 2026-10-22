@@ -26,6 +26,7 @@
 | 💡 **Skill portabel** | Ekspor skill yang dipelajari ke file, atau impor dari file, **link gist**, atau URL mentah apa pun (`aegisx skills …`, `/skills …`) |
 | ↩️ **Undo & budget** | `/undo` membuang pertukaran terakhir; `AEGISX_MAX_TOKENS_PER_TURN` menghentikan turn dengan anggun saat budget habis |
 | 🛠️ **Turn yang mengutamakan tool** | Permintaan berbentuk tugas mewajibkan tool call di iterasi pertama (`AEGISX_FORCE_TOOLS=auto\|always\|never`); jawaban teks "paste kode Anda" diulang dengan tool dipaksa |
+| 🛡️ **Mode cyber** | Asesmen keamanan untuk target yang diotorisasi sejak awal: scan ber-scope, SAST, pencarian advisory, agen pentest otonom (survey → rencana → eksekusi → eskalasi → verifikasi), dan laporan SARIF/Markdown/HTML |
 
 ## 🚀 Mulai Cepat
 
@@ -137,6 +138,15 @@ aegisx personas           # Daftar persona yang tersedia
 aegisx tools              # Daftar tool beserta tingkat risikonya
 aegisx config-info        # Tampilkan konfigurasi saat ini
 
+# Asesmen keamanan (selalu tersedia; tanpa API key)
+aegisx cyber scan https://app.example.com    # Scan deterministik: recon → check → temuan
+aegisx cyber sast ./src                      # Analisis statis: secret, sink, salah konfigurasi
+aegisx cyber audit .                         # Advisory dependensi (OSV + cadangan offline)
+aegisx cyber swarm https://app.example.com   # Beberapa jalur serangan sekaligus, tanpa model
+aegisx cyber agent https://app.example.com   # Otonom: survey → rencana → eksekusi → eskalasi → verifikasi
+aegisx cyber report findings.json --dir out  # Render ulang temuan tersimpan jadi SARIF/Markdown/HTML
+aegisx cyber capabilities                    # Apa saja yang benar-benar bisa dijalankan mesin
+
 # Keamanan
 aegisx chat --permission-mode read-only   # Hanya tool read-only yang boleh
 aegisx chat --permission-mode allow-all   # Tanpa gate (tetap diaudit)
@@ -224,7 +234,82 @@ aegisx --persona researcher
 # Simpan ke ~/.aegisx/personas/persona_saya.txt
 ```
 
-Persona bawaan: `default`, `coder`, `researcher`, `analyst`, `creative`, `hacker`, `scientist`
+Persona bawaan: `default` (default), `pentester`, `hacker`, `coder`, `researcher`, `analyst`, `creative`, `scientist`
+
+`default` adalah asisten serbaguna — itulah yang dipakai sesi biasa. Pindah ke
+`pentester` kalau Anda mau doktrin keamanan offensif: `aegisx --persona pentester`
+(atau `AEGISX_PERSONA=pentester`), dan `/code` di dalam chat untuk masuk ke mode
+coding.
+
+## 🛡️ Mode cyber
+
+Perintah di bawah selalu berfungsi — mereka menggerakkan mesin secara langsung
+dan jalur deterministiknya tidak butuh API key. Yang bersifat opt-in adalah
+mode cyber *percakapan*: `AEGISX_CYBER_ENABLED=true` mendaftarkan keempat tool
+asesmen di sesi chat dan mengirim playbook di bawah bersama system prompt,
+sehingga model bisa menjalankan scan sendiri. Nonaktif secara bawaan, karena
+itu menambah tool dan sekitar dua ribu token doktrin ke setiap prompt. Tidak
+ada yang dipindai sampai Anda menyebut target — tool mengambil target dari
+permintaan, dan scope guard memutuskan apakah host itu boleh dihubungi.
+
+```bash
+aegisx cyber scan <url>     # header, cookie, TLS, CORS, eksposur, injeksi, kontrol akses
+aegisx cyber sast <path>    # secret yang ter-commit, sink berbahaya, salah konfigurasi framework
+aegisx cyber audit <path>   # dependensi terhadap OSV, dengan cadangan offline bawaan
+aegisx cyber swarm <url>    # check yang sama sebagai jalur serangan paralel
+aegisx cyber agent <url>    # agen otonom (lihat di bawah)
+```
+
+Di dalam sesi chat, mesin yang sama tersedia sebagai slash command:
+
+```text
+/cyber scan <url>           /cyber status
+/cyber sast [path]          /cyber scope <url>
+/cyber audit [path]         /cyber capabilities
+/cyber agent <url>          /cyber help
+```
+
+### Apa yang dilakukan agen otonom
+
+```text
+survey   → petakan target tanpa model (endpoint, teknologi, robots.txt)
+plan     → model memilih jalur serangan dari katalog kapabilitas yang tetap
+run      → swarm menjalankannya paralel, masing-masing hanya dengan kapabilitas yang diberikan
+escalate → temuan gelombang pertama dikembalikan; model boleh merencanakan satu gelombang
+           lanjutan yang lebih sempit, atau menolak bila tidak ada yang layak ditindaklanjuti
+verify   → model boleh membuang false positive dengan alasan tertulis, di bawah batas retensi
+           (laporan tidak bisa dihapus) dan severity terlindungi (info/low tidak pernah dibuang)
+report   → SARIF 2.1.0, Markdown, dan satu file HTML mandiri
+```
+
+Rencana hanya boleh menyebut kapabilitas yang benar-benar ada di mesin, jadi
+teknik yang tidak ada tidak mungkin ditemukan. Pembuangan temuan dicatat di
+laporan sebagai temuan INFO, bukan dihapus, sehingga review tetap terlihat dan
+bisa dibantah. Bila tidak ada model yang dikonfigurasi, agen tetap berjalan:
+ia memakai rencana default mesin dan melewati verifikasi.
+
+### Jaminan scope
+
+Semua ini ditegakkan di batas jaringan, sebelum request dikirim, dan tidak
+bisa diperlebar oleh model, oleh redirect, atau oleh host yang ditemukan:
+
+- hanya host yang Anda sebut (plus `extra_hosts` yang Anda set) yang dihubungi;
+- alamat loopback, privat, link-local, multicast, dan cloud-metadata ditolak
+  kecuali Anda memakai `--allow-private` / `AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=true`;
+- redirect hanya diikuti bila host *berikutnya* juga di dalam scope;
+- budget request, budget per-host, rate limit, batas konkurensi, dan deadline berlaku untuk setiap check;
+- hanya `GET`, `HEAD`, dan probe `POST` read-only yang dipakai — tidak ada check yang menulis ke target.
+
+Setiap temuan membawa buktinya (request line, status respons, potongan body) dan
+memisahkan severity dari confidence, sehingga "critical terkonfirmasi" dan
+"medium probable" berarti dua hal berbeda di laporan.
+
+### Playbook bawaan
+
+`recon-survey`, `injection-hunt`, `authn-review`, `authz-review`, `api-abuse`,
+`business-logic`, `cloud-posture`, `supply-chain-review`, `finding-discipline`.
+Playbook adalah prosedur, bukan kapabilitas: mesin yang menentukan apa yang
+benar, playbook yang menentukan urutan kerja dan apa yang dianggap bukti.
 
 ## 🔧 Tool
 
@@ -245,6 +330,10 @@ Persona bawaan: `default`, `coder`, `researcher`, `analyst`, `creative`, `hacker
 | `code_edit` | caution | Edit file dengan pratinjau diff |
 | `git` | bervariasi | Git status / diff / commit / branch |
 | `run_tests` | bervariasi | Deteksi otomatis dan jalankan test suite |
+| `cyber_scan` | dangerous | Scan keamanan ber-scope pada target yang diotorisasi (mode cyber) |
+| `cyber_sast` | caution | Analisis statis sebuah source tree (mode cyber) |
+| `cyber_cve` | safe | Pencarian advisory dependensi (mode cyber) |
+| `cyber_report` | safe | Render temuan jadi SARIF / Markdown / HTML (mode cyber) |
 
 ## 🔐 Izin (Permissions)
 
@@ -429,6 +518,12 @@ fail-closed-nya, log audit dan redaksinya, scheduler, pustaka skill, konversi
 wire-format provider, dan ujung-ke-ujung terhadap server HTTP tiruan yang
 kompatibel OpenAI/Anthropic.
 
+Mesin cyber punya suite sendiri (`tests/test_cyber_*.py`): setiap check
+terhadap target berskrip, penolakan scope guard, aturan same-origin crawler,
+grant kapabilitas dan koroborasi swarm, eskalasi dua gelombang agen beserta
+review yang terbatas, analisis statis dan pencocokan advisory, reporter, dan
+perintah CLI-nya.
+
 ## 🪝 Git hooks
 
 Hook keamanan (filter pesan commit, penjaga rahasia saat pre-push) berada di
@@ -461,6 +556,16 @@ AEGISX_PERMISSION_MODE=ask           # allow-all | ask | read-only
 AEGISX_ALLOWED_TOOLS=                # mis. execute_code,run_tests
 AEGISX_DENIED_TOOLS=                 # mis. shell
 AEGISX_AUDIT_LOG_ENABLED=true
+
+# Mode cyber (perintahnya selalu jalan; ini menyalakan tool chat)
+AEGISX_CYBER_ENABLED=true            # default: false
+AEGISX_PERSONA=default               # default | pentester | coder | researcher | …
+AEGISX_CYBER_DEFAULT_TARGETS=        # host dipisah koma, atau kosong untuk menyebut per permintaan
+AEGISX_CYBER_MAX_REQUESTS=2000
+AEGISX_CYBER_REQUESTS_PER_SECOND=10
+AEGISX_CYBER_MAX_CONCURRENCY=6
+AEGISX_CYBER_TIMEOUT_SECONDS=1800
+AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=false   # target loopback/privat: hanya jaringan sendiri
 ```
 
 ## 🧩 Plugin dan tugas autonomous
@@ -621,11 +726,23 @@ aegisx_agent/                 # paket flat di root repo (tanpa src/)
 │   ├── scheduler_api.py      # API tugas terjadwal dan daemon scheduler
 │   ├── loop.py               # Loop tool-use agentic (streaming + retry)
 │   └── config.py             # Konfigurasi (pydantic-settings)
+├── cyber/                    # Mesin asesmen keamanan
+│   ├── scope.py              # Scope guard: allowlist, budget, deadline, penolakan alamat privat
+│   ├── prober.py             # Satu-satunya jalur jaringan: ber-scope, rate-limited, merekam bukti
+│   ├── recon.py              # Crawler, fingerprint, pemindaian port dan subdomain
+│   ├── checks/               # Satu check sempit per modul (header, injeksi, authz, …)
+│   ├── swarm.py              # Jalur serangan paralel dengan grant kapabilitas per jalur
+│   ├── agent.py              # Agen otonom: survey → rencana → eksekusi → eskalasi → verifikasi
+│   ├── playbooks.py          # Prosedur pentest bawaan
+│   ├── sast.py               # Analisis statis: secret, sink, salah konfigurasi, manifest
+│   ├── cve.py                # Advisory OSV dengan cadangan offline bawaan
+│   ├── report.py             # SARIF 2.1.0, Markdown, HTML mandiri
+│   └── tools.py              # cyber_scan / cyber_sast / cyber_cve / cyber_report
 ├── cli/                      # CLI terminal kaya
 │   ├── app.py                # Typer app + konsol Rich bersama (satu sumber)
 │   ├── main.py               # Perpipaan config + entry point typer
 │   ├── interactive.py        # Loop chat, progress animasi, dispatch slash
-│   ├── commands/             # Handler slash: permissions, code, schedule
+│   ├── commands/             # Handler slash: permissions, code, cyber, schedule
 │   └── __init__.py           # Re-export untuk pemakaian programatik
 ├── plugins/                  # Manifest tool terversi dan loader eksplisit
 ├── security/                 # Gerbang izin + log audit

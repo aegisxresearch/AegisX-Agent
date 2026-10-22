@@ -45,3 +45,7 @@ htmlcov/
 # Local agent scaffolding (freebuff-power), never published
 .freebuff/
 AGENTS.md
+
+# Local agent scaffolding (ECC rules/skills), never published
+.agents/
+.freebuff-snapshots/

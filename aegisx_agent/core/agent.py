@@ -40,11 +40,25 @@ from aegisx_agent.tools.web_search import WebSearchTool
 
 #: Glyph per tool, so a stream of calls reads like a status feed.
 _TOOL_ICONS = {
-    "calculator": "🔢", "datetime": "📅", "web_search": "🔍",
-    "execute_code": "🐍", "file_ops": "📁", "editor": "✎",
-    "shell": "💻", "api_call": "🌐", "db_query": "🗄️",
-    "web_scrape": "🕷️", "rag_search": "📚", "run_tests": "🧪",
-    "codebase": "🗂️", "git": "📦", "spawn_subagent": "👥",
+    "calculator": "🔢",
+    "datetime": "📅",
+    "web_search": "🔍",
+    "execute_code": "🐍",
+    "file_ops": "📁",
+    "editor": "✎",
+    "shell": "💻",
+    "api_call": "🌐",
+    "db_query": "🗄️",
+    "web_scrape": "🕷️",
+    "rag_search": "📚",
+    "run_tests": "🧪",
+    "codebase": "🗂️",
+    "git": "📦",
+    "spawn_subagent": "👥",
+    "cyber_scan": "🛰️",
+    "cyber_sast": "🔬",
+    "cyber_cve": "📜",
+    "cyber_report": "📝",
 }
 
 #: Primary argument per tool — the part a human skims to see what is running.
@@ -62,6 +76,9 @@ _TOOL_SUMMARY_KEYS = {
     "calculator": "expression",
     "git": "action",
     "spawn_subagent": "task",
+    "cyber_scan": "target",
+    "cyber_sast": "path",
+    "cyber_cve": "path",
 }
 
 
@@ -138,6 +155,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         self._init_skills()
         self.plugin_registry = PluginRegistry()
         self._init_tools()
+        self._init_cyber()
         self._init_personas()
 
         # MCP servers (Model Context Protocol): external tool catalogs that
@@ -171,6 +189,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
 
         # Session ID for this run
         import uuid
+
         self.session_id = str(uuid.uuid4())[:8]
 
         # Usage tracking wraps the provider so every path (chat, streaming,
@@ -263,14 +282,17 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         # API, DB, and Web Scraper tools
         if self.config.api_call_enabled:
             from aegisx_agent.tools.api_caller import APICallerTool
+
             self.tools.register(APICallerTool())
 
         if self.config.db_query_enabled:
             from aegisx_agent.tools.db_query import DatabaseQueryTool
+
             self.tools.register(DatabaseQueryTool())
 
         if self.config.web_scraper_enabled:
             from aegisx_agent.tools.web_scraper import WebScraperTool
+
             self.tools.register(WebScraperTool())
 
         # Coding tools (agentic coding)
@@ -280,6 +302,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
             MultiFileEditorTool,
             TestRunnerTool,
         )
+
         self.tools.register(CodebaseTool())
         self.tools.register(MultiFileEditorTool())
         self.tools.register(GitTool())
@@ -306,6 +329,21 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                 )
             )
 
+    def _init_cyber(self) -> None:
+        """Register the cyber tools when cyber mode is on.
+
+        The tools share one :class:`~aegisx_agent.cyber.tools.CyberSession`
+        so a scan's findings are available to the report tool without the
+        model having to carry them between calls — which it does badly.
+        """
+        self.cyber_session = None
+        if not self.config.cyber_enabled:
+            return
+
+        from aegisx_agent.cyber.tools import register_cyber_tools
+
+        self.cyber_session = register_cyber_tools(self.tools)
+
     def register_plugin(self, definition: PluginDefinition) -> str:
         """Validate and register one explicit plugin as a gated tool."""
         plugin_tool = self.plugin_registry.register(definition)
@@ -330,6 +368,54 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         for definition in definitions:
             self.tools.unregister(definition.manifest.qualified_tool_name)
         return True
+
+    # ------------------------------------------------------------------ #
+    # Cyber assessment
+    # ------------------------------------------------------------------ #
+
+    def build_cyber_config(
+        self,
+        targets: list[str] | None = None,
+        **overrides: Any,
+    ) -> Any:
+        """Build a cyber-agent configuration from the agent's settings.
+
+        The targets default to the ones the operator configured; the
+        remaining budgets come from the same config that drives the
+        chat loop, so one place controls how much the agent may do.
+        """
+        from aegisx_agent.cyber.agent import CyberAgentConfig
+
+        resolved = list(targets or self.config.cyber_target_names)
+        base = CyberAgentConfig(
+            targets=resolved,
+            max_requests=self.config.cyber_max_requests,
+            requests_per_second=self.config.cyber_requests_per_second,
+            max_concurrency=self.config.cyber_max_concurrency,
+            timeout_seconds=self.config.cyber_timeout_seconds,
+        )
+        for key, value in overrides.items():
+            setattr(base, key, value)
+        return base
+
+    async def run_cyber_assessment(
+        self,
+        targets: list[str] | None = None,
+        *,
+        on_progress: Callable[[str, str], None] | None = None,
+        **overrides: Any,
+    ) -> Any:
+        """Run the full autonomous assessment: survey, plan, execute, verify.
+
+        This is the deterministic-behind-the-model path: the same engine
+        the CLI's ``aegisx cyber agent`` command drives, but using this
+        agent's own LLM provider as the planner and reviewer.
+        """
+        from aegisx_agent.cyber.agent import CyberAgent
+
+        cyber_config = self.build_cyber_config(targets, **overrides)
+        cyber_agent = CyberAgent(cyber_config, model=self.llm, on_progress=on_progress)
+        return await cyber_agent.run()
 
     # ------------------------------------------------------------------ #
     # MCP (Model Context Protocol) servers
@@ -425,6 +511,31 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                 "to look up information from ingested documents when relevant."
             )
 
+        # Cyber mode: the tools that send traffic to somebody else's server
+        # need a different instruction than a local read, and the model
+        # needs to know the scope boundary before it picks a target.
+        if self.config.cyber_enabled:
+            system_prompt += (
+                "\n\n[Cyber mode]: you have security-assessment tools. "
+                "cyber_scan sends traffic to a host, cyber_sast reads a source "
+                "tree, cyber_cve checks dependencies against the advisory "
+                "database, and cyber_report writes the findings out. "
+                "Only test targets the operator has explicitly authorised. "
+                "Never widen the scope yourself: if the scan surfaces a host "
+                "that was not in scope, report it as an out-of-scope "
+                "observation instead of testing it. Every finding you report "
+                "must carry the evidence the tool returned — do not invent "
+                "vulnerabilities the tools did not find, and do not upgrade "
+                "a severity the tool did not assign."
+            )
+            # The playbooks travel with the prompt rather than being written
+            # into the operator's skill library: they are doctrine, not
+            # something the agent learned, and a scan must start from the
+            # same procedure in every session.
+            from aegisx_agent.cyber.playbooks import playbooks_prompt
+
+            system_prompt += f"\n\n{playbooks_prompt()}"
+
         # Workspace awareness (where am I, what is this project)
         project = self.get_project()
         if project is not None:
@@ -478,9 +589,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
         return system_prompt
 
     @contextmanager
-    def _subagent_telemetry(
-        self, observer: Callable[[str], None] | None
-    ) -> Iterator[None]:
+    def _subagent_telemetry(self, observer: Callable[[str], None] | None) -> Iterator[None]:
         """Route delegation progress to ``observer`` for the duration of a turn.
 
         The hook lives on the registered tool, so it is process-wide state: it
@@ -840,8 +949,7 @@ class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
                 return
 
             self.skill_manager.create_skill(
-                name=skill_data.get("name")
-                or f"skill_{len(self.skill_manager.list_skills()) + 1}",
+                name=skill_data.get("name") or f"skill_{len(self.skill_manager.list_skills()) + 1}",
                 description=skill_data.get("description", "Auto-generated skill"),
                 steps=steps,
                 tags=["auto-generated"],

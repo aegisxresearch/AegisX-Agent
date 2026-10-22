@@ -19,8 +19,23 @@ from enum import Enum
 from typing import Any
 
 from aegisx_agent.llm.base import LLMProvider, LLMResponse, Message, Role, ToolCall
-from aegisx_agent.tools.base import ToolResult
+from aegisx_agent.tools.base import ToolResult, ToolStatus
 from aegisx_agent.tools.registry import ToolRegistry
+
+
+def _call_signature(name: str, arguments: str) -> str:
+    """Stable identity of one tool call, used for denial bookkeeping.
+
+    The raw argument string is normalised through JSON so two spellings of
+    the same call (``{"a":1}`` and ``{"a": 1}``) are recognised as one call
+    and a retry of it is caught as a retry.
+    """
+    try:
+        parsed = json.loads(arguments) if arguments.strip() else {}
+    except (json.JSONDecodeError, TypeError):
+        return f"{name}:{arguments.strip()}"
+    canonical = json.dumps(parsed, sort_keys=True, default=str)
+    return f"{name}:{canonical}"
 
 #: Requests that plainly need project context. On these, the first iteration
 #: asks the server to *require* a tool call: weak OpenAI-compatible routers
@@ -259,6 +274,13 @@ class AgenticLoop:
         tool_results_context: list[str] = []
         force_tools = self._force_tools_for(messages, tool_schemas)
 
+        # Tool calls the permission gate refused during this turn. Kept so a
+        # retry of the same call is short-circuited instead of re-entering the
+        # gate, and so a model that keeps hammering a refused call ends the
+        # turn rather than spending the whole iteration budget on it.
+        denied_calls: set[str] = set()
+        consecutive_denied_iterations = 0
+
         for iteration in range(self.max_iterations):
             step = AgentStep(iteration=iteration + 1, thought="")
 
@@ -327,13 +349,35 @@ class AgenticLoop:
 
             # Execute tools (parallel or sequential)
             tool_results = await self._execute_tools(
-                response.tool_calls, tool_results_context
+                response.tool_calls, tool_results_context, denied_calls
             )
             step.tool_results = [
                 {"name": r["name"], "success": r["success"], "output": r["output"][:200]}
                 for r in tool_results
             ]
             trace.total_tool_calls += len(response.tool_calls)
+
+            # A refused call is a decision, not a transient error. If every
+            # call in this iteration was refused, the model is not making
+            # progress; let it try one more turn to pivot, then stop the turn
+            # with a clear reason instead of looping to max_iterations.
+            iteration_denied = [bool(r.get("denied")) for r in tool_results]
+            if tool_results and all(iteration_denied):
+                consecutive_denied_iterations += 1
+            else:
+                consecutive_denied_iterations = 0
+            if consecutive_denied_iterations >= 2:
+                final = (
+                    "Stopped: the permission gate refused every tool call for two "
+                    f"consecutive attempts ({', '.join(sorted(denied_calls))}). "
+                    "No further actions were taken."
+                )
+                step.thought = "(permission denied repeatedly — stopping turn)"
+                step.outcome = StepOutcome.FAILED
+                trace.steps.append(step)
+                trace.final_response = final
+                trace.duration_seconds = time.time() - start_time
+                return final, trace
 
             if on_tool_result is not None:
                 for r in tool_results:
@@ -495,37 +539,77 @@ class AgenticLoop:
         self,
         tool_calls: list[ToolCall],
         context: list[str],
+        denied_calls: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Execute tool calls, optionally in parallel."""
         if self.parallel_tools and len(tool_calls) > 1:
-            return await self._execute_parallel(tool_calls, context)
-        return await self._execute_sequential(tool_calls, context)
+            return await self._execute_parallel(tool_calls, context, denied_calls)
+        return await self._execute_sequential(tool_calls, context, denied_calls)
 
     async def _execute_sequential(
-        self, tool_calls: list[ToolCall], context: list[str]
+        self,
+        tool_calls: list[ToolCall],
+        context: list[str],
+        denied_calls: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Execute tools one by one."""
         results = []
         for tc in tool_calls:
-            result = await self._execute_single_tool(tc, context)
+            result = await self._execute_single_tool(tc, context, denied_calls)
             results.append(result)
         return results
 
     async def _execute_parallel(
-        self, tool_calls: list[ToolCall], context: list[str]
+        self,
+        tool_calls: list[ToolCall],
+        context: list[str],
+        denied_calls: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Execute tools concurrently."""
-        tasks = [self._execute_single_tool(tc, context) for tc in tool_calls]
+        tasks = [
+            self._execute_single_tool(tc, context, denied_calls) for tc in tool_calls
+        ]
         return await asyncio.gather(*tasks)
 
     async def _execute_single_tool(
-        self, tc: ToolCall, context: list[str]
+        self, tc: ToolCall, context: list[str], denied_calls: set[str] | None = None
     ) -> dict[str, Any]:
-        """Execute a single tool with error recovery."""
-        result = await self.tools.execute(tc.name, tc.arguments)
+        """Execute a single tool with error recovery.
 
-        # If failed and recovery enabled, try to fix
-        if not result.is_success and self.enable_recovery:
+        A permission denial is a policy decision, not a broken call. It is
+        never handed to the recovery module — that module asks the model for
+        an alternative tool, which is how a denial used to turn into a retry
+        of the very same call — and the denial is remembered so an identical
+        retry inside the same turn is refused locally instead of re-entering
+        the gate.
+        """
+        blocked = denied_calls if denied_calls is not None else set()
+        signature = _call_signature(tc.name, tc.arguments)
+
+        if signature in blocked:
+            return {
+                "id": tc.id,
+                "name": tc.name,
+                "success": False,
+                "output": (
+                    f"Tool '{tc.name}' was already denied by the permission gate "
+                    "earlier in this turn. It will not be retried. Choose a "
+                    "different approach and report the blocker to the user."
+                ),
+                "status": ToolStatus.ERROR.value,
+                "denied": True,
+                "repeat": True,
+                "signature": signature,
+            }
+
+        result = await self.tools.execute(tc.name, tc.arguments)
+        denied = bool(result.metadata.get("denied"))
+        if denied:
+            blocked.add(signature)
+
+        # If failed and recovery enabled, try to fix. A denial is excluded on
+        # purpose: recovery would only propose the same refused call again.
+        if not result.is_success and self.enable_recovery and not denied:
             recovered = await self._recover_from_error(tc, result, context)
             if recovered:
                 return recovered
@@ -539,6 +623,9 @@ class AgenticLoop:
             "success": result.is_success,
             "output": output,
             "status": result.status.value,
+            "denied": denied,
+            "repeat": False,
+            "signature": signature,
         }
 
     async def _self_reflect(
