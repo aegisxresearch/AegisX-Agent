@@ -425,15 +425,22 @@ cat <<EOF
 
 ${C_BOLD}AegisX Agent $VERSION is ready.${C_OFF}
 
-  aegisx                    # interactive chat (auto-detects a local Ollama)
-  aegisx run "task"         # one-shot, scriptable
-  aegisx config-info        # show current configuration
+  aegisx cyber capabilities             # what the engine can run
+  aegisx cyber scan https://your-target # authorised targets only
+  aegisx cyber sast .                   # source tree: secrets, sinks, config
+  aegisx cyber audit .                  # dependencies against OSV
+  aegisx --persona pentester            # the offensive doctrine
+  aegisx                                # interactive session
+  aegisx run "task"                     # one-shot, scriptable
 
-No API key is needed if an Ollama server is already running. Otherwise:
+The deterministic commands need no model. The autonomous planner uses one
+when it is configured:
 
   export AEGISX_OPENAI_API_KEY="sk-..."        # or another provider:
   export AEGISX_LLM_PROVIDER=anthropic         # anthropic | groq | custom
   export AEGISX_ANTHROPIC_API_KEY="sk-ant-..."
+
+Only assess systems you own or have written permission to test.
 
 Later updates:    re-run this installer (it updates an existing install)
 Uninstall:        installer.sh --uninstall${PURGE:+ (add --purge for data)}

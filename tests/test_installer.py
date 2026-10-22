@@ -378,3 +378,23 @@ def test_cli_version_flag_works_from_the_module_entrypoint() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "AegisX Agent" in result.stdout
+
+
+def test_the_closing_message_points_at_the_security_commands() -> None:
+    """The last thing an install prints is the first thing a user will try.
+
+    It listed only ``aegisx``, ``aegisx run``, and ``config-info``, so a fresh
+    install gave no hint that the assessment engine or the pentester persona
+    existed — the script was current while its message was a release behind.
+    """
+    source = INSTALLER.read_text(encoding="utf-8")
+
+    for command in (
+        "aegisx cyber capabilities",
+        "aegisx cyber scan",
+        "aegisx cyber sast",
+        "aegisx cyber audit",
+        "aegisx --persona pentester",
+    ):
+        assert command in source
+    assert "Only assess systems you own" in source
