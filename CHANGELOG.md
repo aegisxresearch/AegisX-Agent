@@ -152,6 +152,16 @@ expensive first); `aegisx usage --delegations` (or `/usage --delegations`)
 - **Versioned git hooks.** Secret-scanning pre-push guard moved to `.githooks/`
   with `core.hooksPath`; it now also works on first pushes from a fresh clone
   and catches dash-prefixed patterns (PEM keys) that grep used to swallow.
+- **The active pre-push guard no longer swallows PEM keys.** The copy the
+  machine actually ran (`core.hooksPath` pointed at the global template, not
+  `.githooks/`) still passed the PEM pattern to `grep` without a `--`
+  separator, so `grep` read it as an option list, printed an
+  "unrecognized option" error to stderr, matched nothing, and the guard
+  exited 0 — a private key pushed through a guard that reported success. The
+  active template was brought in line with `.githooks/pre-push`, and
+  `tests/test_git_hooks.py` now drives the real hook inside throwaway git
+  repositories to prove each pattern blocks, that a clean tree is not
+  blocked, and that a first push from a fresh clone is still scanned.
 
 ### Changed
 
