@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A hostname can no longer hide a private address.** The guard only looked
+  at the URL text, so it refused `http://127.0.0.1/` but accepted
+  `http://localhost/` or `metadata.google.internal` — names that resolve to
+  exactly the addresses it was trying to protect. `ScopeGuard` now resolves
+  the host through an injectable resolver and refuses the request if *any*
+  address it maps to is loopback, private, link-local, multicast, or
+  cloud-metadata; the answer is cached per host for the scan, and a name that
+  will not resolve is left for the transport to fail rather than being
+  reported as a scope violation. `Prober` calls the resolving path for the
+  first request and for every redirect hop. The resolved address is not
+  pinned to the connection, so rebinding between the check and the connect is
+  still possible and needs a custom transport to close.
 - **A write verb can no longer leave the process.** `ScopePolicy` now carries an
   `allowed_methods` allowlist (`GET`, `HEAD`, `OPTIONS`, `POST`, `TRACE`,
   `PROPFIND` by default) and `ScopeGuard.check()` refuses anything outside it

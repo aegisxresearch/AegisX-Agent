@@ -187,13 +187,22 @@ Enforced at the network boundary, before any request is sent:
 
 - only the hosts you named (plus any `extra_hosts` you configured) are
   contacted; hosts discovered during the scan are never added automatically;
-- literal IPs in loopback, private, link-local, multicast, and cloud-metadata
-  ranges are refused unless you pass `--allow-private` /
-  `AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=true`;
+- a hostname is resolved before the request is sent and **every** address it
+  maps to is checked, so `metadata.google.internal` or `localhost` cannot slip
+  past a guard that only read the URL; loopback, private, link-local,
+  multicast, and cloud-metadata addresses are refused unless you pass
+  `--allow-private` / `AEGISX_CYBER_ALLOW_PRIVATE_ADDRESSES=true`; the answer is
+  cached per host for the life of the scan;
 - a redirect is followed only if the *next* host is also in scope;
 - a request budget, a per-host budget, a rate limit, a concurrency cap, and a
   deadline apply to every check;
 - every refusal is recorded with its reason as part of the audit trail.
+
+Two limits are worth stating plainly. The cached address is not pinned to the
+connection, so a name that changes its answer mid-scan is not re-resolved until
+the next scan; pinning needs a custom transport, not a guard. And a name that
+does not resolve is left to the transport to fail — an ordinary DNS hiccup is
+not reported as a scope violation.
 
 Every request is also checked against a verb allowlist. `GET`, `HEAD`,
 `OPTIONS`, `POST`, `TRACE`, and `PROPFIND` may be sent. `PUT`, `DELETE`,

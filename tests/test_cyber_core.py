@@ -376,6 +376,24 @@ def _transport(handler: Any) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
+#: A public address the offline resolver below hands out. The prober tests
+#: must not depend on real DNS, and the guard now resolves before connecting.
+PUBLIC_ADDRESS = "93.184.216.34"
+
+
+async def _public_resolver(host: str) -> tuple[str, ...]:
+    return (PUBLIC_ADDRESS,)
+
+
+def _resolver_returning(*addresses: str) -> Any:
+    """A resolver that answers every name with the same addresses."""
+
+    async def resolve(host: str) -> tuple[str, ...]:
+        return addresses
+
+    return resolve
+
+
 def _client(handler: Any) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=_transport(handler), follow_redirects=False)
 
@@ -390,7 +408,7 @@ async def test_prober_captures_the_exchange_as_evidence() -> None:
             request=request,
         )
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard, verify_tls=False)
     prober._client = _client(handler)
 
@@ -415,7 +433,7 @@ async def test_prober_refuses_an_out_of_scope_url_without_touching_the_network()
         calls.append(str(request.url))
         return httpx.Response(200, text="leaked", request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 
@@ -436,7 +454,7 @@ async def test_a_write_verb_never_reaches_the_network() -> None:
         sent.append(request.method)
         return httpx.Response(200, text="should not happen", request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 
@@ -451,6 +469,119 @@ async def test_a_write_verb_never_reaches_the_network() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_a_name_that_resolves_to_loopback_is_refused() -> None:
+    guard = ScopeGuard(
+        scope_from_targets(["https://internal.example.com"]),
+        resolver=_resolver_returning("127.0.0.1"),
+    )
+
+    with pytest.raises(ScopeError) as excinfo:
+        await guard.ensure_allowed_resolved("https://internal.example.com/")
+
+    assert excinfo.value.violation is ScopeViolation.PRIVATE_ADDRESS
+    assert "127.0.0.1" in excinfo.value.detail
+    assert guard.violations == [("https://internal.example.com/", "private-address")]
+
+
+@pytest.mark.asyncio()
+async def test_a_metadata_name_is_refused_like_the_address_it_points_at() -> None:
+    """The URL says a name; the resolver says 169.254.169.254."""
+    guard = ScopeGuard(
+        scope_from_targets(["https://metadata.google.internal"]),
+        resolver=_resolver_returning("169.254.169.254"),
+    )
+
+    with pytest.raises(ScopeError) as excinfo:
+        await guard.ensure_allowed_resolved("https://metadata.google.internal/")
+
+    assert excinfo.value.violation is ScopeViolation.PRIVATE_ADDRESS
+
+
+@pytest.mark.asyncio()
+async def test_one_private_answer_is_enough_to_refuse_a_name() -> None:
+    guard = ScopeGuard(
+        scope_from_targets(["https://mixed.example.com"]),
+        resolver=_resolver_returning(PUBLIC_ADDRESS, "10.0.0.7"),
+    )
+
+    with pytest.raises(ScopeError) as excinfo:
+        await guard.ensure_allowed_resolved("https://mixed.example.com/")
+
+    assert "10.0.0.7" in excinfo.value.detail
+
+
+@pytest.mark.asyncio()
+async def test_a_public_name_is_resolved_once_per_scan() -> None:
+    calls: list[str] = []
+
+    async def resolver(host: str) -> tuple[str, ...]:
+        calls.append(host)
+        return (PUBLIC_ADDRESS,)
+
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=resolver)
+
+    await guard.ensure_allowed_resolved("https://app.example.com/")
+    await guard.ensure_allowed_resolved("https://app.example.com/other")
+
+    assert calls == ["app.example.com"]
+
+
+@pytest.mark.asyncio()
+async def test_a_name_that_does_not_resolve_is_left_to_the_transport() -> None:
+    """A DNS hiccup is not a scope violation: there is nothing to connect to."""
+
+    async def resolver(host: str) -> tuple[str, ...]:
+        raise OSError("name does not resolve")
+
+    guard = ScopeGuard(scope_from_targets(["https://gone.example.com"]), resolver=resolver)
+
+    await guard.ensure_allowed_resolved("https://gone.example.com/")
+
+    assert guard.violations == []
+
+
+@pytest.mark.asyncio()
+async def test_private_addresses_opted_into_are_not_resolved_away() -> None:
+    calls: list[str] = []
+
+    async def resolver(host: str) -> tuple[str, ...]:
+        calls.append(host)
+        return ("127.0.0.1",)
+
+    guard = ScopeGuard(
+        scope_from_targets(["http://lab.example.com"], allow_private_addresses=True),
+        resolver=resolver,
+    )
+
+    await guard.ensure_allowed_resolved("http://lab.example.com/")
+
+    assert calls == []
+
+
+@pytest.mark.asyncio()
+async def test_the_prober_stops_a_name_that_resolves_to_loopback() -> None:
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not run
+        sent.append(str(request.url))
+        return httpx.Response(200, text="should not happen", request=request)
+
+    guard = ScopeGuard(
+        scope_from_targets(["https://internal.example.com"]),
+        resolver=_resolver_returning("127.0.0.1"),
+    )
+    prober = Prober(guard)
+    prober._client = _client(handler)
+
+    response = await prober.request("https://internal.example.com/")
+
+    assert sent == []
+    assert "private-address" in (response.error or "")
+    assert guard.requests_made == 0
+    await prober.close()
+
+
+@pytest.mark.asyncio()
 async def test_a_redirect_does_not_widen_the_scope() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "app.example.com":
@@ -459,7 +590,7 @@ async def test_a_redirect_does_not_widen_the_scope() -> None:
             )
         return httpx.Response(200, text="third party", request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 
@@ -476,7 +607,7 @@ async def test_a_transport_error_becomes_an_error_response_not_an_exception() ->
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 
@@ -497,7 +628,7 @@ async def test_head_or_get_falls_back_when_head_is_rejected() -> None:
         status = 405 if request.method == "HEAD" else 200
         return httpx.Response(status, text="body", request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 
@@ -515,7 +646,7 @@ async def test_probe_many_keeps_the_order_and_reports_failures() -> None:
             raise httpx.ReadTimeout("timed out", request=request)
         return httpx.Response(200, text=request.url.path, request=request)
 
-    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]), resolver=_public_resolver)
     prober = Prober(guard)
     prober._client = _client(handler)
 

@@ -11,9 +11,11 @@ that bound:
   concurrency cap. The scanner cannot turn into a flooder, because the
   guard rejects the request before it reaches the network.
 - **Bounded time.** An overall deadline. A scan that stalls stops.
-- **No unsafe destinations.** Loopback, private, and link-local addresses
-  are refused by default, so a compromised or confused agent cannot be
-  steered into probing the host it runs on or its neighbours.
+- **No unsafe destinations.** Loopback, private, link-local, and
+  cloud-metadata addresses are refused by default. A hostname is resolved
+  before the request is sent and every address it maps to is checked, so
+  ``metadata.google.internal`` cannot slip past a guard that only looked at
+  the text of the URL.
 - **No unsafe verbs.** Only the methods in the policy's allowlist may be
   sent. A write verb (``PUT``, ``DELETE``, ``PATCH``) is refused *before*
   it reaches the network, because a check that tests for an open write
@@ -27,9 +29,12 @@ regardless of permission mode — including ``allow-all``.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
+import socket
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlparse
@@ -87,6 +92,27 @@ _HOST_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]
 def _is_hostname(host: str) -> bool:
     """Whether a string is a syntactically valid DNS hostname."""
     return bool(host) and len(host) <= 253 and bool(_HOST_PATTERN.match(host))
+
+
+#: How a hostname becomes addresses. Injected in tests so the suite never
+#: depends on a resolver, and replaceable by an embedder that already has one.
+Resolver = Callable[[str], Awaitable[Sequence[str]]]
+
+
+async def resolve_addresses(host: str) -> tuple[str, ...]:
+    """Every IP address a hostname currently maps to.
+
+    Uses the running loop's executor-backed resolver, so a scan never blocks
+    the event loop on DNS.
+    """
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    addresses: list[str] = []
+    for info in infos:
+        address = str(info[4][0])
+        if address not in addresses:
+            addresses.append(address)
+    return tuple(addresses)
 
 
 def _is_blocked_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -172,13 +198,17 @@ class ScopeGuard:
     per-host limit are real rather than advisory.
     """
 
-    def __init__(self, policy: ScopePolicy) -> None:
+    def __init__(self, policy: ScopePolicy, *, resolver: Resolver | None = None) -> None:
         self.policy = policy
+        self._resolver = resolver or resolve_addresses
         self._requests_made = 0
         self._per_host: dict[str, int] = {}
         self._started_at = time.monotonic()
         self._last_request_at = 0.0
         self._violations: list[tuple[str, str]] = []
+        #: hostname -> addresses, resolved once per scan. A resolver round trip
+        #: per request would dominate a crawl, and the policy is fixed anyway.
+        self._resolved: dict[str, tuple[str, ...]] = {}
 
     # === Introspection ================================================= #
 
@@ -338,6 +368,57 @@ class ScopeGuard:
         if not decision.allowed:
             raise ScopeError(decision.violation or ScopeViolation.NOT_IN_SCOPE, decision.reason)
 
+    async def ensure_allowed_resolved(self, url: str, *, method: str = "GET") -> None:
+        """Authorise a request, resolving the hostname before it is sent.
+
+        :meth:`ensure_allowed` can only judge what the URL says: a literal IP
+        is refused when it is private, but a *name* that resolves to one is
+        just a name. ``metadata.google.internal`` is the standing example.
+        This is the version the prober calls, because resolving needs the
+        event loop.
+
+        Every address a name maps to is checked, so an answer with both a
+        public and a private address is refused. A name that does not resolve
+        is left to the transport: there is no address to connect to, and an
+        ordinary DNS hiccup should not be reported as a scope violation.
+
+        The resolution is cached for the life of the scan, so a rebinding
+        attacker who changes the answer mid-scan is not re-resolved here. That
+        is a real limit, not a guarantee: pinning the address a connection
+        actually uses needs a custom transport, not a guard.
+        """
+        decision = self.check(url, method=method)
+        if not decision.allowed:
+            raise ScopeError(decision.violation or ScopeViolation.NOT_IN_SCOPE, decision.reason)
+        if self.policy.allow_private_addresses:
+            return
+        blocked = [
+            address for address in await self._addresses_for(decision.host) if _is_blocked(address)
+        ]
+        if blocked:
+            reason = (
+                f"{decision.host} resolves to a non-public address "
+                f"({', '.join(blocked)})"
+            )
+            self._violations.append((url, ScopeViolation.PRIVATE_ADDRESS.value))
+            raise ScopeError(ScopeViolation.PRIVATE_ADDRESS, reason)
+
+    async def _addresses_for(self, host: str) -> tuple[str, ...]:
+        """The addresses a host maps to, resolving at most once per scan."""
+        cached = self._resolved.get(host)
+        if cached is not None:
+            return cached
+        literal = _parse_address(host)
+        if literal is not None:
+            addresses: tuple[str, ...] = (str(literal),)
+        else:
+            try:
+                addresses = tuple(await self._resolver(host))
+            except (OSError, UnicodeError, ValueError):
+                addresses = ()
+        self._resolved[host] = addresses
+        return addresses
+
 
 def scope_from_targets(
     targets: list[str],
@@ -375,10 +456,20 @@ def scope_from_targets(
     )
 
 
+def _parse_address(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The address a string spells, or ``None`` when it is a hostname."""
+    try:
+        return ipaddress.ip_address(text)
+    except ValueError:
+        return None
+
+
+def _is_blocked(text: str) -> bool:
+    """Whether a string is an address a scan has no business touching."""
+    address = _parse_address(text)
+    return address is not None and _is_blocked_ip(address)
+
+
 def _looks_like_ip(host: str) -> bool:
     """Whether a host string is a literal IPv4 or IPv6 address."""
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return True
+    return _parse_address(host) is not None

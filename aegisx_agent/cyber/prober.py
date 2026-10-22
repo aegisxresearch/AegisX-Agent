@@ -151,7 +151,10 @@ class Prober:
         async with self._semaphore:
             for hop in range(self.max_redirects + 1):
                 try:
-                    self.guard.ensure_allowed(current_url, method=method)
+                    # Resolving here is what stops a name that points at
+                    # loopback or a metadata service: the guard judges the
+                    # address, not the spelling of the host.
+                    await self.guard.ensure_allowed_resolved(current_url, method=method)
                 except ScopeError as exc:
                     # The redirect chain is kept: a refusal is evidence too,
                     # and the hop that was refused is what explains it.
