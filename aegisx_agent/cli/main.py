@@ -260,6 +260,25 @@ def _apply_permission_mode(config: AgentConfig, mode: str | None) -> None:
         ) from exc
 
 
+def _apply_persona(config: AgentConfig, persona: str | None) -> None:
+    """Apply a ``--persona`` flag value, rejecting a name that does not exist.
+
+    ``PersonaLoader.get`` answers an unknown name with the default prompt, so
+    a typo used to start a session under the wrong doctrine while saying
+    nothing about it. Listing what does exist is the error message.
+    """
+    if not persona:
+        return
+    from aegisx_agent.personas.loader import PersonaLoader
+
+    available = PersonaLoader(config.personas_path).list_available()
+    if persona not in available:
+        raise typer.BadParameter(
+            f"unknown persona '{persona}'. Choose one of: {', '.join(available)}"
+        )
+    config.persona = persona
+
+
 def _get_agent(config: AgentConfig | None = None) -> AegisXAgent:
     global _agent
     if _agent is None:
@@ -1201,9 +1220,7 @@ def chat(
     """Start interactive chat session."""
     config = _get_config(provider, model, api_key, custom_url)
     _apply_permission_mode(config, permission_mode)
-    # Fix: persona might be OptionInfo object from typer
-    if persona and isinstance(persona, str):
-        config.persona = persona
+    _apply_persona(config, persona)
     agent = _get_agent(config)
     _run_chat(agent, no_stream)
 
@@ -1213,6 +1230,7 @@ def plan(
     goal: str = typer.Argument(..., help="Goal to plan and execute"),
     provider: str | None = typer.Option(None, "--provider", "-p"),
     model: str | None = typer.Option(None, "--model", "-m"),
+    persona: str | None = typer.Option(None, "--persona", help="Persona name"),
     permission_mode: str | None = typer.Option(
         None,
         "--permission-mode",
@@ -1222,6 +1240,7 @@ def plan(
     """Create a plan and execute it step by step."""
     config = _get_config(provider, model)
     _apply_permission_mode(config, permission_mode)
+    _apply_persona(config, persona)
     agent = _get_agent(config)
     console.print(f"\n[bold yellow]📋 Planning:[/bold yellow] {goal}\n")
 
@@ -1284,8 +1303,7 @@ def run(
 
     config = _get_config(provider, model, api_key, custom_url)
     _apply_permission_mode(config, permission_mode)
-    if persona and isinstance(persona, str):
-        config.persona = persona
+    _apply_persona(config, persona)
     agent = _get_agent(config)
     if not json_output:
         _print_workspace(agent)
@@ -1645,6 +1663,9 @@ def main(
     model: str | None = typer.Option(None, "--model", "-m"),
     api_key: str | None = typer.Option(None, "--api-key", "-k"),
     custom_url: str | None = typer.Option(None, "--url", "-u"),
+    persona: str | None = typer.Option(
+        None, "--persona", help="Persona name (default, pentester, coder, …)"
+    ),
     permission_mode: str | None = typer.Option(
         None,
         "--permission-mode",
@@ -1666,6 +1687,7 @@ def main(
             model=model,
             api_key=api_key,
             custom_url=custom_url,
+            persona=persona,
             permission_mode=permission_mode,
         )
 

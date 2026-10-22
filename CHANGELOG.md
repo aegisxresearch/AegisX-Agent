@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--persona` works where the README said it did.** The flag existed on
+  `chat` and `run` only, so `aegisx --persona pentester` — the documented way
+  to start a session under the offensive doctrine — failed with "No such
+  option". It is now on the bare command, `chat`, `plan`, and `run`; an
+  unknown name is refused with the list of real ones instead of silently
+  falling back to the default doctrine; and `python -m aegisx_agent.cli` prints
+  `aegisx` in its usage and error lines instead of the module path.
 - **`cyber scan --json` is pipeable again.** Progress narration went to stdout
   alongside the result, so `aegisx cyber scan --json > findings.json` produced a
   file no parser could read and broke the documented round-trip into
