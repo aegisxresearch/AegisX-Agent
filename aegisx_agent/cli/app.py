@@ -25,6 +25,12 @@ THEME = Theme({
 
 console = Console(theme=THEME)
 
+#: Progress and diagnostics. Kept on stderr so a command's machine-readable
+#: output can be piped without narration mixed into it — ``aegisx cyber scan
+#: --json > findings.json`` has to produce a file a JSON parser can read.
+#: The theme is shared, so a dim progress line looks the same on either stream.
+err_console = Console(theme=THEME, stderr=True)
+
 
 def print_delegation_progress(event: str) -> None:
     """Render one line of delegation telemetry for a non-streaming turn.
@@ -38,6 +44,6 @@ def print_delegation_progress(event: str) -> None:
 
 app = typer.Typer(
     name="aegisx",
-    help="🤖 AegisX Agent — Super-powered Agentic AI",
+    help="🛡️ AegisX Agent — autonomous pentest and bug-hunting agent",
     rich_markup_mode="rich",
 )

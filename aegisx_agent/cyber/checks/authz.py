@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from aegisx_agent.cyber.checks import CheckContext, finding
@@ -22,6 +23,9 @@ from aegisx_agent.cyber.models import (
     Finding,
     Severity,
 )
+
+if TYPE_CHECKING:  # avoids a runtime import cycle
+    from aegisx_agent.cyber.prober import Response
 
 #: Paths whose last segment looks like an object identifier.
 _ID_SEGMENT = re.compile(
@@ -175,13 +179,24 @@ class IDORCheck:
 
 @dataclass
 class HTTPMethodCheck:
-    """Detect dangerous HTTP methods that should not be enabled."""
+    """Detect dangerous HTTP methods that should not be enabled.
+
+    Read-only verbs are probed directly. Write verbs are **never sent**:
+    the check asks ``OPTIONS`` what the server advertises instead, and
+    reports an advertisement as ``probable`` rather than ``confirmed``,
+    because the method was not exercised.
+
+    That split is the whole point of the check. Testing whether ``DELETE``
+    is enabled by sending ``DELETE`` has already performed the deletion it
+    was hired to find — on a target the operator may only partly control.
+    """
 
     name: str = "dangerous-methods"
     category: Category = Category.CONFIG
     cost: str = "cheap"
 
-    #: Methods worth probing, and what an enabled one means.
+    #: Read-only verbs worth probing, and what an enabled one means. Neither
+    #: changes state, so sending one is safe.
     PROBES: tuple[tuple[str, str, Severity], ...] = (
         (
             "TRACE",
@@ -193,13 +208,25 @@ class HTTPMethodCheck:
             "PROPFIND is a WebDAV method that enumerates server-side files",
             Severity.MEDIUM,
         ),
-        ("PUT", "PUT allows a client to write files to the server", Severity.LOW),
-        ("DELETE", "DELETE allows a client to remove server-side resources", Severity.LOW),
+    )
+
+    #: Write verbs, detected from the ``Allow`` header and never sent.
+    WRITE_METHODS: tuple[tuple[str, str, Severity], ...] = (
+        ("PUT", "PUT lets a client write files to the server", Severity.LOW),
+        ("DELETE", "DELETE lets a client remove server-side resources", Severity.LOW),
     )
 
     async def run(self, context: CheckContext) -> list[Finding]:
+        found = await self._probe_read_verbs(context)
+        found.extend(await self._read_advertised_writes(context))
+        return found
+
+    async def _probe_read_verbs(self, context: CheckContext) -> list[Finding]:
+        """Send the read-only probes and report the ones the server accepts."""
         found: list[Finding] = []
         for method, why, severity in self.PROBES:
+            if not context.prober.guard.allows_method(method):
+                continue
             response = await context.fetch(context.base_url, method=method)
             if response.error:
                 continue
@@ -214,9 +241,9 @@ class HTTPMethodCheck:
                     context=context,
                     description=f"The server accepts {method} requests. {why}.",
                     impact=(
-                        "An exposed write or enumeration method widens the attack "
-                        "surface beyond what the application intends, and can enable "
-                        "direct file placement or deletion."
+                        "An exposed enumeration method widens the attack surface "
+                        "beyond what the application intends, and can reveal files "
+                        "the deployment did not mean to publish."
                     ),
                     remediation=(
                         f"Disable the {method} method for this location in the web "
@@ -238,6 +265,77 @@ class HTTPMethodCheck:
                 )
             )
         return found
+
+    async def _read_advertised_writes(self, context: CheckContext) -> list[Finding]:
+        """Report write verbs the server advertises, without ever sending one."""
+        if not context.prober.guard.allows_method("OPTIONS"):
+            return []
+
+        # A 405 or 501 is not a failure here: RFC 9110 says the Allow header
+        # comes back with those too, and that header is the whole point.
+        response = await context.fetch(context.base_url, method="OPTIONS")
+        if response.error:
+            return []
+
+        advertised = self._parse_allow(response)
+        if not advertised:
+            return []
+
+        found: list[Finding] = []
+        allow_value = ", ".join(sorted(advertised))
+        for method, why, severity in self.WRITE_METHODS:
+            if method not in advertised:
+                continue
+            found.append(
+                finding(
+                    title=f"HTTP method {method} is advertised",
+                    severity=severity,
+                    category=self.category,
+                    confidence=Confidence.PROBABLE,
+                    context=context,
+                    description=(
+                        f"The server's Allow header lists {method}. {why}. The method "
+                        "was not exercised — a write verb is not tested by writing."
+                    ),
+                    impact=(
+                        "If the advertisement is accurate, a client can place or "
+                        "remove server-side resources through the web server rather "
+                        "than through the application."
+                    ),
+                    remediation=(
+                        f"Disable the {method} method for this location in the web "
+                        "server or gateway, then confirm that OPTIONS no longer "
+                        "advertises it."
+                    ),
+                    cwe="CWE-749",
+                    owasp="A05:2021 - Security Misconfiguration",
+                    evidence=[
+                        Evidence(
+                            kind=EvidenceKind.RESPONSE,
+                            summary=f"OPTIONS advertised {method} in its Allow header",
+                            snippet=f"Allow: {allow_value}",
+                            request=response.request_line(),
+                            response_status=response.status,
+                        )
+                    ],
+                    source=self.name,
+                    tags=["config", "http-method", method.lower(), "advertised"],
+                )
+            )
+        return found
+
+    @staticmethod
+    def _parse_allow(response: Response) -> set[str]:
+        """Every method named in the response's Allow header(s), upper-cased."""
+        values = response.header_values("allow") or [response.header("allow")]
+        methods: set[str] = set()
+        for value in values:
+            methods.update(
+                token.strip().upper()
+                for token in str(value).replace(",", " ").split()
+                if token.strip()
+            )
+        return methods
 
 
 @dataclass

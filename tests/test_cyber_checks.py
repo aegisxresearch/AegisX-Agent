@@ -71,12 +71,22 @@ def response(
     )
 
 
+class AllowEveryMethod:
+    """The guard a scripted context needs: it permits whatever is asked."""
+
+    def allows_method(self, method: str) -> bool:
+        return True
+
+
 class FakeProber:
     """A prober that answers from a script instead of the network."""
 
-    def __init__(self, handler: Callable[..., Response]) -> None:
+    def __init__(
+        self, handler: Callable[..., Response], *, guard: Any = None
+    ) -> None:
         self.handler = handler
         self.calls: list[dict[str, Any]] = []
+        self.guard = guard or AllowEveryMethod()
 
     async def request(
         self,
@@ -579,9 +589,9 @@ async def test_a_denial_on_the_neighbouring_identifier_is_not_an_idor() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_an_accepting_write_method_is_reported() -> None:
+async def test_an_accepting_read_method_is_reported_as_confirmed() -> None:
     def handler(url: str, method: str = "GET", **_: Any) -> Response:
-        if method in ("PUT", "TRACE"):
+        if method in ("TRACE", "PROPFIND"):
             return response(url, 200, "ok")
         return response(url, 405, "not allowed")
 
@@ -590,9 +600,51 @@ async def test_an_accepting_write_method_is_reported() -> None:
     findings = await HTTPMethodCheck().run(context)
 
     assert sorted(finding.title for finding in findings) == [
-        "HTTP method PUT is enabled",
+        "HTTP method PROPFIND is enabled",
         "HTTP method TRACE is enabled",
     ]
+    assert all(finding.confidence is Confidence.CONFIRMED for finding in findings)
+
+
+@pytest.mark.asyncio()
+async def test_write_methods_are_read_from_allow_and_never_sent() -> None:
+    def handler(url: str, method: str = "GET", **_: Any) -> Response:
+        if method == "OPTIONS":
+            return response(url, 200, "", headers={"Allow": "GET, HEAD, PUT, DELETE"})
+        return response(url, 405, "not allowed")
+
+    prober, context = scripted(handler)
+
+    findings = await HTTPMethodCheck().run(context)
+
+    assert sorted(finding.title for finding in findings) == [
+        "HTTP method DELETE is advertised",
+        "HTTP method PUT is advertised",
+    ]
+    # An advertisement is not an exercise, so it cannot be confirmed.
+    assert all(finding.confidence is Confidence.PROBABLE for finding in findings)
+    assert all("Allow: " in finding.evidence[0].snippet for finding in findings)
+    assert {"PUT", "DELETE"}.isdisjoint({call["method"] for call in prober.calls})
+
+
+@pytest.mark.asyncio()
+async def test_a_narrowed_policy_stops_the_check_from_probing_at_all() -> None:
+    class OnlyGet:
+        def allows_method(self, method: str) -> bool:
+            return method.upper() == "GET"
+
+    prober = FakeProber(
+        lambda **_: response(BASE, 200, "", headers={"Allow": "GET, PUT"}),
+        guard=OnlyGet(),
+    )
+    context = CheckContext(
+        base_url=BASE,
+        host="app.example.com",
+        prober=prober,  # type: ignore[arg-type]
+    )
+
+    assert await HTTPMethodCheck().run(context) == []
+    assert prober.calls == []
 
 
 @pytest.mark.asyncio()

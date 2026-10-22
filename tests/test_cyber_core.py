@@ -227,6 +227,43 @@ def test_private_addresses_can_be_opted_into_explicitly() -> None:
     assert guard.check("http://127.0.0.1:8000/").allowed
 
 
+@pytest.mark.parametrize("method", ["PUT", "DELETE", "PATCH", "CONNECT"])
+def test_a_write_verb_is_refused_with_its_own_reason(method: str) -> None:
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+
+    decision = guard.check("https://app.example.com/", method=method)
+
+    assert not decision.allowed
+    assert decision.violation is ScopeViolation.METHOD_NOT_ALLOWED
+    assert method in decision.reason
+    assert guard.violations == [("https://app.example.com/", "method-not-allowed")]
+
+
+def test_the_verbs_a_scan_actually_needs_are_allowed() -> None:
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+
+    for method in ("GET", "HEAD", "OPTIONS", "POST", "TRACE", "PROPFIND", "get"):
+        assert guard.check("https://app.example.com/", method=method).allowed
+
+
+def test_an_operator_can_narrow_the_method_allowlist() -> None:
+    guard = ScopeGuard(
+        scope_from_targets(["https://app.example.com"], allowed_methods=["GET"])
+    )
+
+    assert guard.check("https://app.example.com/").allowed
+    assert not guard.allows_method("post")
+    assert (
+        guard.check("https://app.example.com/", method="POST").violation
+        is ScopeViolation.METHOD_NOT_ALLOWED
+    )
+
+
+def test_a_policy_with_no_methods_is_rejected() -> None:
+    with pytest.raises(ValueError, match="allowed_methods"):
+        ScopePolicy(allowed_methods=[])
+
+
 def test_an_exhausted_budget_refuses_the_request_before_it_is_sent() -> None:
     policy = scope_from_targets(["https://app.example.com"], max_requests=1)
     guard = ScopeGuard(policy)
@@ -388,6 +425,28 @@ async def test_prober_refuses_an_out_of_scope_url_without_touching_the_network()
     assert response.error is not None
     assert "scope violation" in response.error
     assert response.status == 0
+    await prober.close()
+
+
+@pytest.mark.asyncio()
+async def test_a_write_verb_never_reaches_the_network() -> None:
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not run
+        sent.append(request.method)
+        return httpx.Response(200, text="should not happen", request=request)
+
+    guard = ScopeGuard(scope_from_targets(["https://app.example.com"]))
+    prober = Prober(guard)
+    prober._client = _client(handler)
+
+    for method in ("PUT", "DELETE", "PATCH"):
+        response = await prober.request("https://app.example.com/", method=method)
+        assert response.status == 0
+        assert "method-not-allowed" in (response.error or "")
+
+    assert sent == []
+    assert guard.requests_made == 0
     await prober.close()
 
 

@@ -1,4 +1,4 @@
-"""AegisX Agent — Super-powered Agentic AI with custom LLM support."""
+"""AegisX Agent — autonomous pentest and bug-hunting agent."""
 
 __version__ = "0.1.0"
 

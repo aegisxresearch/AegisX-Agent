@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aegisx-agent"
 version = "0.1.0"
-description = "AegisX Agent — Super-powered Agentic AI with full tool calling, RAG, planning, memory, and code generation"
+description = "AegisX Agent — autonomous pentest and bug-hunting agent for authorised security assessments"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

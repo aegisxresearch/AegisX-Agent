@@ -31,7 +31,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from aegisx_agent.cli.app import console
+from aegisx_agent.cli.app import console, err_console
 
 #: Colours per severity, used by the findings table.
 _SEVERITY_STYLE: dict[str, str] = {
@@ -160,8 +160,10 @@ def run_scan(
 
     async def _run() -> Any:
         scanner = Scanner(config)
+        # Progress goes to stderr: stdout carries only the result, so
+        # ``--json`` can be redirected straight into a findings file.
         scanner.on_progress(
-            lambda event: console.print(f"[dim]{event.phase}: {event.message}[/dim]")
+            lambda event: err_console.print(f"[dim]{event.phase}: {event.message}[/dim]")
         )
         return await scanner.run()
 
@@ -353,7 +355,7 @@ def run_agent(
     model = _cyber_model()
 
     def _progress(phase: str, message: str) -> None:
-        console.print(f"[dim]{phase}: {message}[/dim]")
+        err_console.print(f"[dim]{phase}: {message}[/dim]")
 
     async def _run() -> Any:
         return await CyberAgent(config, model=model, on_progress=_progress).run()

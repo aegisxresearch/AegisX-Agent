@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A write verb can no longer leave the process.** `ScopePolicy` now carries an
+  `allowed_methods` allowlist (`GET`, `HEAD`, `OPTIONS`, `POST`, `TRACE`,
+  `PROPFIND` by default) and `ScopeGuard.check()` refuses anything outside it
+  with a new `METHOD_NOT_ALLOWED` violation — before the request is built, so
+  the previous `method` argument that was accepted and ignored is now the thing
+  that decides. `PUT`, `DELETE`, `PATCH`, and `CONNECT` are refused even when
+  the destination is in scope, and an operator can narrow the list further.
+- **The `dangerous-methods` check no longer sends `PUT` or `DELETE`.** Testing
+  whether a write verb is enabled by performing the write is the harm it was
+  hired to find. The check probes the read-only verbs (`TRACE`, `PROPFIND`)
+  directly and reads the server's `Allow` header via `OPTIONS` for the write
+  ones, reporting an advertisement as `probable` rather than `confirmed`, with
+  the `Allow` line as its evidence.
+
+### Fixed
+
+- **`cyber scan --json` is pipeable again.** Progress narration went to stdout
+  alongside the result, so `aegisx cyber scan --json > findings.json` produced a
+  file no parser could read and broke the documented round-trip into
+  `aegisx cyber report`. Progress now goes to a stderr console; stdout carries
+  only the document.
+
+### Changed
+
+- **The product now introduces itself as a pentest agent.** The `pyproject`
+  description, the Typer app help, the interactive banner, and the package and
+  `AegisXAgent` docstrings all said "Super-powered Agentic AI"; they now state
+  the security-assessment purpose. The `default` persona is the pentest and
+  bug-hunting assistant (scope discipline, evidence over assertion, severity and
+  confidence kept apart), `pentester` remains the deeper offensive doctrine, and
+  `coder` is still the engineering switch.
+
 ### Added
 
 - **Subagent delegation (`spawn_subagent`).** The agent can decompose work by

@@ -7,6 +7,7 @@ at the engine level, where the prober can be replaced.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +19,7 @@ from aegisx_agent.cli.commands.cyber import (
     _handle_cyber_command,
     _print_cyber_status,
     _print_scope,
+    run_scan,
 )
 from aegisx_agent.cyber.agent import CAPABILITY_CATALOGUE
 
@@ -81,6 +83,42 @@ def test_audit_says_so_when_a_tree_has_no_manifests(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No dependency manifests" in result.stdout
+
+
+def test_scan_json_lands_on_stdout_and_progress_on_stderr(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """``--json`` must be pipeable: stdout holds the document and nothing else.
+
+    Narrating the scan on stdout made ``aegisx cyber scan --json > f.json``
+    produce a file no parser could read, which broke the documented
+    round-trip into ``aegisx cyber report``.
+    """
+    from aegisx_agent.cyber import scanner as scanner_module
+    from aegisx_agent.cyber.models import ScanResult
+
+    class FakeScanner:
+        def __init__(self, config: Any) -> None:
+            self.config = config
+            self._callback: Any = None
+
+        def on_progress(self, callback: Any) -> None:
+            self._callback = callback
+
+        async def run(self) -> ScanResult:
+            self._callback(SimpleNamespace(phase="recon", message="Mapping the target"))
+            result = ScanResult(target="https://app.example.com")
+            result.finalize()
+            return result
+
+    monkeypatch.setattr(scanner_module, "Scanner", FakeScanner)
+
+    run_scan("https://app.example.com", as_json=True)
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)  # raises if narration leaked onto stdout
+    assert payload["target"] == "https://app.example.com"
+    assert "recon: Mapping the target" in captured.err
 
 
 def test_the_slash_command_without_arguments_prints_usage() -> None:

@@ -14,6 +14,10 @@ that bound:
 - **No unsafe destinations.** Loopback, private, and link-local addresses
   are refused by default, so a compromised or confused agent cannot be
   steered into probing the host it runs on or its neighbours.
+- **No unsafe verbs.** Only the methods in the policy's allowlist may be
+  sent. A write verb (``PUT``, ``DELETE``, ``PATCH``) is refused *before*
+  it reaches the network, because a check that tests for an open write
+  method by writing has already caused the damage it was looking for.
 
 The guard is deliberately *separate* from the permission gate. The gate
 asks "should this human approve this action?"; the scope guard answers
@@ -43,6 +47,7 @@ class ScopeViolation(str, Enum):
     RATE_LIMITED = "rate-limited"
     DEADLINE_PASSED = "deadline-passed"
     MALFORMED_URL = "malformed-url"
+    METHOD_NOT_ALLOWED = "method-not-allowed"
 
 
 class ScopeError(RuntimeError):
@@ -58,6 +63,20 @@ class ScopeError(RuntimeError):
 #: is refused — a scan that can read local files is a scan that can be
 #: steered into exfiltrating the operator's own machine.
 ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+#: Verbs a scan may send unless its policy says otherwise.
+#:
+#: ``GET``, ``HEAD``, and ``OPTIONS`` are reads. ``POST`` is included
+#: because form-shaped injection probes need a request body — the engine
+#: only ever sends read-only bodies. ``TRACE`` and ``PROPFIND`` are here
+#: for the configuration check that asks whether they are enabled; both
+#: read, neither writes.
+#:
+#: ``PUT``, ``DELETE``, ``PATCH``, and ``CONNECT`` are absent on purpose.
+#: An assessment must not test a write method by performing the write.
+ALLOWED_METHODS: frozenset[str] = frozenset(
+    {"GET", "HEAD", "OPTIONS", "POST", "TRACE", "PROPFIND"}
+)
 
 #: Default ports per scheme, used when a URL omits one.
 DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
@@ -94,10 +113,13 @@ class ScopePolicy:
     ``allowed_hosts`` accepts exact hosts (``app.example.com``) and
     wildcard suffixes (``*.example.com``). ``allowed_paths`` narrows
     further; an empty list means "any path on an allowed host".
+    ``allowed_methods`` is the verb allowlist: a request using a method
+    outside it is refused before it is sent, whatever the destination.
     """
 
     allowed_hosts: list[str] = field(default_factory=list)
     allowed_paths: list[str] = field(default_factory=list)
+    allowed_methods: frozenset[str] = field(default_factory=lambda: ALLOWED_METHODS)
     allowed_schemes: list[str] = field(default_factory=lambda: ["http", "https"])
     allowed_ports: list[int] = field(default_factory=lambda: [80, 443, 8080, 8443, 3000, 5000])
     max_requests: int = 2000
@@ -115,6 +137,11 @@ class ScopePolicy:
             path if path.startswith("/") else f"/{path}" for path in self.allowed_paths
         ]
         self.allowed_schemes = [scheme.lower() for scheme in self.allowed_schemes]
+        self.allowed_methods = frozenset(
+            str(method).strip().upper() for method in self.allowed_methods if str(method).strip()
+        )
+        if not self.allowed_methods:
+            raise ValueError("allowed_methods must name at least one HTTP method")
         if self.requests_per_second <= 0:
             raise ValueError("requests_per_second must be positive")
         if self.max_concurrency < 1:
@@ -184,6 +211,15 @@ class ScopeGuard:
                 return True
         return False
 
+    def allows_method(self, method: str) -> bool:
+        """Whether the policy permits this HTTP verb.
+
+        Checks consult this before choosing a probe: a verb the policy
+        refuses would come back as a scope violation, which is a wasted
+        request and a misleading error in the scan's stats.
+        """
+        return method.strip().upper() in self.policy.allowed_methods
+
     def path_allowed(self, path: str) -> bool:
         """Whether a path is inside the authorised path prefix."""
         if not self.policy.allowed_paths:
@@ -212,6 +248,19 @@ class ScopeGuard:
             self._violations.append((url, ScopeViolation.MALFORMED_URL.value))
             return ScopeDecision(
                 False, url, host, ScopeViolation.MALFORMED_URL, "missing scheme or host"
+            )
+
+        # The verb is checked before the destination: an unsafe method is a
+        # refusal no matter which host it is aimed at, and every violation
+        # is recorded, so a caller that keeps asking keeps being told.
+        verb = (method or "GET").strip().upper()
+        if verb not in self.policy.allowed_methods:
+            reason = (
+                f"method {verb!r} is not one of {sorted(self.policy.allowed_methods)}"
+            )
+            self._violations.append((url, ScopeViolation.METHOD_NOT_ALLOWED.value))
+            return ScopeDecision(
+                False, url, host, ScopeViolation.METHOD_NOT_ALLOWED, reason
             )
 
         if scheme not in self.policy.allowed_schemes:

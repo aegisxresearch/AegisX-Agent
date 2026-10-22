@@ -1658,7 +1658,7 @@ def main(
         is_eager=True,
     ),
 ) -> None:
-    """🤖 AegisX Agent — Super-powered Agentic AI with /commands."""
+    """🛡️ AegisX Agent — autonomous pentest and bug-hunting agent with /commands."""
     if ctx.invoked_subcommand is None:
         ctx.invoke(
             chat,

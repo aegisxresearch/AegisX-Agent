@@ -110,10 +110,10 @@ def _tool_status_line(name: str, arguments: dict[str, Any] | str) -> str:
 
 
 class AegisXAgent(RAGAPI, MemoryAPI, SchedulerAPI):
-    """Super-powered Agentic AI.
+    """An autonomous pentest and bug-hunting agent.
 
-    Supports any LLM provider, tool calling, RAG, memory, planning,
-    and customizable personas.
+    Supports any LLM provider, tool calling, scoped security assessment,
+    RAG, memory, planning, and customizable personas.
     """
 
     def __init__(
